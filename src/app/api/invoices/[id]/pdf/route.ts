@@ -13,7 +13,7 @@ export async function GET(
   const { id } = params
   const supabase = await createClient()
 
-  // Fetch invoice with all joined relations and balances view
+  // Fetch invoice with all joined relations
   const { data: invoiceData, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
@@ -48,13 +48,6 @@ export async function GET(
         quantity,
         unit_price,
         line_total
-      ),
-      invoice_balances (
-        invoice_id,
-        grand_total,
-        amount_paid,
-        balance_due,
-        computed_status
       )
     `)
     .eq('id', id)
@@ -64,6 +57,13 @@ export async function GET(
     return NextResponse.json({ error: 'Invoice record not found' }, { status: 404 })
   }
 
+  // Fetch invoice balances view
+  const { data: balanceData } = await supabase
+    .from('invoice_balances')
+    .select('*')
+    .eq('invoice_id', id)
+    .maybeSingle()
+
   // Fetch company branding & settings
   const { data: settingsData } = await supabase
     .from('company_settings')
@@ -71,7 +71,16 @@ export async function GET(
     .limit(1)
     .maybeSingle()
 
-  const invoice = invoiceData as unknown as Invoice
+  const invoice = {
+    ...invoiceData,
+    invoice_balances: balanceData || {
+      invoice_id: invoiceData.id,
+      grand_total: invoiceData.grand_total,
+      amount_paid: 0,
+      balance_due: invoiceData.grand_total,
+      computed_status: invoiceData.status || 'draft',
+    },
+  } as unknown as Invoice
   const settings = (settingsData || null) as unknown as CompanySettings
 
   const pdfBuffer = await renderToBuffer(

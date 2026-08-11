@@ -37,16 +37,7 @@ export function DashboardClient() {
     staleTime: 10 * 1000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
-      let query = supabase.from('invoices').select(`
-        id,
-        invoice_date,
-        invoice_balances (
-          grand_total,
-          amount_paid,
-          balance_due,
-          computed_status
-        )
-      `)
+      let query = supabase.from('invoices').select('id, invoice_date')
 
       if (period === 'this_month') {
         const now = new Date()
@@ -56,16 +47,29 @@ export function DashboardClient() {
         query = query.gte('invoice_date', startOfMonth)
       }
 
-      const { data, error } = await query
+      const { data: rawInvoices, error } = await query
       if (error) throw error
 
-      const rows = data || []
+      const invoiceIds = (rawInvoices || []).map((i) => i.id)
+      if (invoiceIds.length === 0) {
+        return { totalBilled: 0, totalCollected: 0, totalOutstanding: 0 }
+      }
+
+      const { data: rawBalances, error: balErr } = await supabase
+        .from('invoice_balances')
+        .select('*')
+        .in('invoice_id', invoiceIds)
+
+      if (balErr) throw balErr
+
+      const balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
+
       let totalBilled = 0
       let totalCollected = 0
       let totalOutstanding = 0
 
-      rows.forEach((r: any) => {
-        const bal = Array.isArray(r.invoice_balances) ? r.invoice_balances[0] : r.invoice_balances
+      ;(rawInvoices || []).forEach((inv: any) => {
+        const bal = balancesMap.get(inv.id)
         totalBilled += Number(bal?.grand_total) || 0
         totalCollected += Number(bal?.amount_paid) || 0
         totalOutstanding += Number(bal?.balance_due) || 0
@@ -107,7 +111,7 @@ export function DashboardClient() {
     staleTime: 10 * 1000,
     refetchOnWindowFocus: true,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: rawInvoices, error } = await supabase
         .from('invoices')
         .select(`
           id,
@@ -116,27 +120,36 @@ export function DashboardClient() {
               id,
               name
             )
-          ),
-          invoice_balances (
-            grand_total,
-            amount_paid,
-            balance_due
           )
         `)
         .neq('status', 'cancelled')
 
       if (error) throw error
 
+      const invoiceIds = (rawInvoices || []).map((i) => i.id)
+      if (invoiceIds.length === 0) {
+        return []
+      }
+
+      const { data: rawBalances, error: balErr } = await supabase
+        .from('invoice_balances')
+        .select('*')
+        .in('invoice_id', invoiceIds)
+
+      if (balErr) throw balErr
+
+      const balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
+
       const courseMap = new Map<
         string,
         { name: string; billed: number; collected: number; outstanding: number }
       >()
 
-      ;(data || []).forEach((inv: any) => {
-        const courseName = inv.enrollments?.courses?.name || 'Unassigned Track'
-        const courseId = inv.enrollments?.courses?.id || 'unassigned'
+      ;(rawInvoices || []).forEach((inv: any) => {
+        const courseName = (inv.enrollments as any)?.courses?.name || 'Unassigned Track'
+        const courseId = (inv.enrollments as any)?.courses?.id || 'unassigned'
 
-        const bal = Array.isArray(inv.invoice_balances) ? inv.invoice_balances[0] : inv.invoice_balances
+        const bal = balancesMap.get(inv.id)
         const billed = Number(bal?.grand_total) || 0
         const collected = Number(bal?.amount_paid) || 0
         const outstanding = Number(bal?.balance_due) || 0
@@ -198,14 +211,31 @@ export function DashboardClient() {
 
         supabase
           .from('invoices')
-          .select('id, invoice_no, grand_total, invoice_date, status, students (name), invoice_balances(computed_status)')
+          .select('id, invoice_no, grand_total, invoice_date, status, students (name)')
           .order('created_at', { ascending: false })
           .limit(10),
       ])
 
+      const rawInvoices = invoicesRes.data || []
+      const invoiceIds = rawInvoices.map((i) => i.id)
+
+      let balancesMap = new Map()
+      if (invoiceIds.length > 0) {
+        const { data: rawBalances } = await supabase
+          .from('invoice_balances')
+          .select('invoice_id, computed_status')
+          .in('invoice_id', invoiceIds)
+        balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
+      }
+
+      const mergedInvoices = rawInvoices.map((inv: any) => ({
+        ...inv,
+        invoice_balances: balancesMap.get(inv.id),
+      }))
+
       return {
         payments: (paymentsRes.data || []) as any[],
-        invoices: (invoicesRes.data || []) as any[],
+        invoices: mergedInvoices as any[],
       }
     },
   })

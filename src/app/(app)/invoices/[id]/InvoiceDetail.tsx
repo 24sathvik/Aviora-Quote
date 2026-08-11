@@ -42,7 +42,7 @@ export function InvoiceDetail() {
   const { data: invoice, isLoading, isError } = useQuery({
     queryKey: ['invoice', invoiceId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: rawInvoice, error } = await supabase
         .from('invoices')
         .select(`
           *,
@@ -87,20 +87,30 @@ export function InvoiceDetail() {
             reference_no,
             notes,
             paid_at
-          ),
-          invoice_balances (
-            invoice_id,
-            grand_total,
-            amount_paid,
-            balance_due,
-            computed_status
           )
         `)
         .eq('id', invoiceId)
         .single()
 
       if (error) throw error
-      return data as unknown as Invoice
+      if (!rawInvoice) return null
+
+      const { data: balanceData } = await supabase
+        .from('invoice_balances')
+        .select('*')
+        .eq('invoice_id', invoiceId)
+        .maybeSingle()
+
+      return {
+        ...rawInvoice,
+        invoice_balances: balanceData || {
+          invoice_id: rawInvoice.id,
+          grand_total: rawInvoice.grand_total,
+          amount_paid: 0,
+          balance_due: rawInvoice.grand_total,
+          computed_status: rawInvoice.status || 'draft',
+        },
+      } as unknown as Invoice
     },
   })
 

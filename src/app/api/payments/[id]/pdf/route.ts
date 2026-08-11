@@ -13,7 +13,7 @@ export async function GET(
   const { id } = params
   const supabase = await createClient()
 
-  // Fetch payment with all joined relations
+  // Fetch payment with all joined relations (without embedded invoice_balances)
   const { data: paymentData, error: paymentError } = await supabase
     .from('payments')
     .select(`
@@ -39,9 +39,6 @@ export async function GET(
         course_terms (
           id,
           term_label
-        ),
-        invoice_balances (
-          balance_due
         )
       )
     `)
@@ -52,6 +49,23 @@ export async function GET(
     return NextResponse.json({ error: 'Payment receipt record not found' }, { status: 404 })
   }
 
+  // Fetch balance_due from invoice_balances view
+  let resultingBalance = 0
+  let invoiceBalanceData = null
+  const invoiceId = paymentData.invoice_id || paymentData.invoices?.id
+  if (invoiceId) {
+    const { data: balanceData } = await supabase
+      .from('invoice_balances')
+      .select('*')
+      .eq('invoice_id', invoiceId)
+      .maybeSingle()
+
+    if (balanceData) {
+      invoiceBalanceData = balanceData
+      resultingBalance = Number(balanceData.balance_due) || 0
+    }
+  }
+
   // Fetch company branding & settings
   const { data: settingsData } = await supabase
     .from('company_settings')
@@ -59,9 +73,22 @@ export async function GET(
     .limit(1)
     .maybeSingle()
 
-  const payment = paymentData as unknown as Payment
+  const payment = {
+    ...paymentData,
+    invoices: paymentData.invoices
+      ? {
+          ...paymentData.invoices,
+          invoice_balances: invoiceBalanceData || {
+            invoice_id: invoiceId,
+            grand_total: paymentData.invoices.grand_total,
+            amount_paid: paymentData.amount,
+            balance_due: resultingBalance,
+            computed_status: 'paid',
+          },
+        }
+      : null,
+  } as unknown as Payment
   const settings = (settingsData || null) as unknown as CompanySettings
-  const resultingBalance = payment.invoices?.invoice_balances?.balance_due ?? 0
 
   const pdfBuffer = await renderToBuffer(
     React.createElement(PaymentReceiptPdfDocument, {
