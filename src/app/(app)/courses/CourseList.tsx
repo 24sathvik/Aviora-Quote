@@ -4,19 +4,23 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
   GraduationCap,
-  Plus,
   Search,
-  BookOpen,
+  Plus,
+  Layers,
+  Calendar,
+  Eye,
   Edit2,
   Trash2,
-  ArrowRight,
+  AlertTriangle,
   Loader2,
-  Calendar,
+  BookOpen,
+  ArrowRight,
   X,
 } from 'lucide-react'
 import type { Course, CourseTerm } from '@/types/database'
@@ -33,7 +37,7 @@ export function CourseList() {
 
   // Fetch courses with their terms to compute totals dynamically
   const { data: courses, isLoading } = useQuery({
-    queryKey: ['courses'],
+    queryKey: queryKeys.courses.all,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('courses')
@@ -95,12 +99,12 @@ export function CourseList() {
       }
     },
     onMutate: async (newCourse) => {
-      await queryClient.cancelQueries({ queryKey: ['courses'] })
-      const previousCourses = queryClient.getQueryData<Course[]>(['courses'])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.all })
+      const previousCourses = queryClient.getQueryData<Course[]>(queryKeys.courses.all)
 
       if (previousCourses) {
         if (newCourse.id) {
-          queryClient.setQueryData<Course[]>(['courses'], (old) =>
+          queryClient.setQueryData<Course[]>(queryKeys.courses.all, (old) =>
             (old || []).map((c) =>
               c.id === newCourse.id ? { ...c, ...newCourse } : c
             )
@@ -116,7 +120,7 @@ export function CourseList() {
             terms_count: 0,
             total_fee: 0,
           }
-          queryClient.setQueryData<Course[]>(['courses'], (old) => [
+          queryClient.setQueryData<Course[]>(queryKeys.courses.all, (old) => [
             optimisticCourse,
             ...(old || []),
           ])
@@ -125,7 +129,7 @@ export function CourseList() {
       return { previousCourses }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['courses'], context?.previousCourses)
+      queryClient.setQueryData(queryKeys.courses.all, context?.previousCourses)
       toastError('Failed to save course', err.message)
     },
     onSuccess: () => {
@@ -134,7 +138,7 @@ export function CourseList() {
       setEditingCourse(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: 'all' })
     },
   })
 
@@ -145,25 +149,25 @@ export function CourseList() {
       if (error) throw error
     },
     onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['courses'] })
-      const previousCourses = queryClient.getQueryData<Course[]>(['courses'])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.all })
+      const previousCourses = queryClient.getQueryData<Course[]>(queryKeys.courses.all)
       if (previousCourses) {
-        queryClient.setQueryData<Course[]>(['courses'], (old) =>
+        queryClient.setQueryData<Course[]>(queryKeys.courses.all, (old) =>
           (old || []).filter((c) => c.id !== id)
         )
       }
       return { previousCourses }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['courses'], context?.previousCourses)
+      queryClient.setQueryData(queryKeys.courses.all, context?.previousCourses)
       toastError('Failed to delete course', err.message)
     },
     onSuccess: () => {
-      success('Course deleted successfully')
+      success('Course deleted')
       setDeletingCourse(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['courses'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all, refetchType: 'all' })
     },
   })
 

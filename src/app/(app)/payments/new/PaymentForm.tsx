@@ -1,14 +1,19 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { generateReceiptNumber } from '@/lib/numbering/generate-number'
+import { recordPayment } from '@/lib/rpc/financial'
+import { invalidateAfterPaymentRecorded } from '@/lib/rpc/invalidation'
+import { generateIdempotencyKey } from '@/lib/utils/idempotency'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { ErrorBanner } from '@/components/ui/ErrorBanner'
+import { SearchableStudentSelect } from '@/components/ui/SearchableStudentSelect'
 import {
   CreditCard,
   ArrowLeft,
@@ -31,7 +36,13 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
   const router = useRouter()
   const supabase = createClient()
   const queryClient = useQueryClient()
-  const { success, error: toastError, toast } = useToast()
+  const { success, error: toastError } = useToast()
+
+  // Error Banner state for verbatim RPC errors (e.g. overpayment rejection)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Idempotency Key Ref: generated once per submission attempt
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   const [studentId, setStudentId] = useState<string>('')
   const [invoiceId, setInvoiceId] = useState<string>(prefillInvoiceId || '')
@@ -41,9 +52,9 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
 
-  // 1. Fetch active students
+  // 1. Fetch active students via QueryKey registry
   const { data: studentsList, isLoading: loadingStudents } = useQuery({
-    queryKey: ['students-for-payment'],
+    queryKey: queryKeys.students.forPayment,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
@@ -54,9 +65,9 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
     },
   })
 
-  // 2. Fetch invoice details if prefillInvoiceId is passed
+  // 2. Fetch prefilled invoice details if prefillInvoiceId is provided
   const { data: prefilledInvoice } = useQuery({
-    queryKey: ['prefilled-invoice-for-payment', prefillInvoiceId],
+    queryKey: queryKeys.invoices.prefilledForPayment(prefillInvoiceId || ''),
     enabled: !!prefillInvoiceId,
     queryFn: async () => {
       const { data: inv, error } = await supabase
@@ -67,7 +78,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
           student_id,
           grand_total
         `)
-        .eq('id', prefillInvoiceId)
+        .eq('id', prefillInvoiceId!)
         .single()
 
       if (error) throw error
@@ -75,7 +86,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
       const { data: bal } = await supabase
         .from('invoice_balances')
         .select('amount_paid, balance_due, computed_status')
-        .eq('invoice_id', prefillInvoiceId)
+        .eq('invoice_id', prefillInvoiceId!)
         .maybeSingle()
 
       return {
@@ -83,14 +94,14 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
         invoice_balances: bal || {
           amount_paid: 0,
           balance_due: inv.grand_total,
-          computed_status: 'draft',
+          computed_status: 'sent',
         },
       } as unknown as Invoice
     },
   })
 
-  // If prefilled, synchronize studentId
-  React.useEffect(() => {
+  // Synchronize studentId when prefilledInvoice is loaded
+  useEffect(() => {
     if (prefilledInvoice?.student_id && !studentId) {
       setStudentId(prefilledInvoice.student_id)
     }
@@ -98,7 +109,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
 
   // 3. Fetch open / unpaid invoices for the selected student
   const { data: studentInvoices, isLoading: loadingInvoices } = useQuery({
-    queryKey: ['open-invoices-for-student', studentId],
+    queryKey: queryKeys.invoices.openForStudent(studentId),
     enabled: !!studentId,
     queryFn: async () => {
       const { data: rawInvoices, error: invErr } = await supabase
@@ -121,6 +132,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
         `)
         .eq('student_id', studentId)
         .neq('status', 'cancelled')
+        .neq('status', 'draft')
         .order('created_at', { ascending: false })
 
       if (invErr) throw invErr
@@ -136,93 +148,90 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
 
       const balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
 
-      const invoices = rawInvoices.map((inv: any) => ({
-        ...inv,
-        invoice_balances: balancesMap.get(inv.id) || {
-          invoice_id: inv.id,
-          grand_total: inv.grand_total,
-          amount_paid: 0,
-          balance_due: inv.grand_total,
-          computed_status: inv.status || 'draft',
-        },
-      }))
+      const invoices = rawInvoices
+        .map((inv: any) => ({
+          ...inv,
+          invoice_balances: balancesMap.get(inv.id) || {
+            invoice_id: inv.id,
+            grand_total: inv.grand_total,
+            amount_paid: 0,
+            balance_due: inv.grand_total,
+            computed_status: inv.status || 'sent',
+          },
+        }))
+        .filter((inv: any) => Number(inv.invoice_balances.balance_due) > 0)
 
       return invoices as unknown as Invoice[]
     },
   })
 
-  // Auto-select invoice if studentInvoices loads and invoiceId is not set
-  React.useEffect(() => {
+  // Auto-select first open invoice if studentInvoices loads and invoiceId is not set
+  useEffect(() => {
     if (studentInvoices && studentInvoices.length > 0 && !invoiceId) {
       setInvoiceId(studentInvoices[0].id)
     }
   }, [studentInvoices, invoiceId])
 
-  // Selected invoice balances
-  const selectedInvoice = studentInvoices?.find((i) => i.id === invoiceId) || (prefilledInvoice as any)
+  // Selected invoice balances for live preview panel
+  const selectedInvoice =
+    studentInvoices?.find((i) => i.id === invoiceId) || (prefilledInvoice as any)
   const balances = selectedInvoice?.invoice_balances
   const invoiceGrandTotal = Number(selectedInvoice?.grand_total) || 0
   const invoiceAmountPaid = Number(balances?.amount_paid) || 0
   const invoiceBalanceDue = Number(balances?.balance_due ?? invoiceGrandTotal)
 
-  // Live real-time calculations
+  // Live real-time preview calculations for instant UI feedback
   const enteredAmount = typeof amount === 'number' ? amount : 0
   const resultingBalance = Math.max(0, invoiceBalanceDue - enteredAmount)
   const isOverpaying = enteredAmount > invoiceBalanceDue && invoiceBalanceDue > 0
 
-  // Record Payment Mutation
+  // Record Payment Mutation (Authoritative record_payment RPC execution)
   const recordPaymentMutation = useMutation({
     mutationFn: async () => {
-      if (!studentId) throw new Error('Please select a student')
-      if (!invoiceId) throw new Error('Please select an invoice to apply payment towards')
+      setFormError(null)
+
+      if (!studentId) throw new Error('Please select an enrolled student')
+      if (!invoiceId) throw new Error('Please select an open tax invoice to credit payment towards')
       if (!enteredAmount || enteredAmount <= 0) {
         throw new Error('Payment amount must be greater than zero')
       }
 
-      // Generate sequential receipt number (AV/RCT/2026-27/00001)
-      const receiptNo = await generateReceiptNumber(new Date(paymentDate), supabase)
+      // Generate idempotency key on first submission attempt if not already set
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = generateIdempotencyKey()
+      }
 
-      const { data: paymentRecord, error } = await supabase
-        .from('payments')
-        .insert({
-          receipt_no: receiptNo,
-          invoice_id: invoiceId,
-          student_id: studentId,
-          amount: enteredAmount,
-          payment_date: paymentDate,
-          payment_mode: paymentMode,
-          reference_no: referenceNo.trim() || null,
-          payment_type: 'payment',
-          notes: notes.trim() || null,
-        })
-        .select('id, receipt_no')
-        .single()
+      // Call authoritative record_payment database RPC wrapper
+      const result = await recordPayment({
+        invoiceId,
+        amount: enteredAmount,
+        paymentDate,
+        paymentMode,
+        referenceNo: referenceNo.trim() || null,
+        notes: notes.trim() || null,
+        idempotencyKey: idempotencyKeyRef.current,
+      })
 
-      if (error) throw error
-      return paymentRecord
+      return result
     },
     onError: (err: Error) => {
-      toastError('Failed to record payment', err.message)
+      setFormError(err.message)
+      toastError('Payment recording failed', err.message)
     },
-    onSuccess: (paymentRecord) => {
-      success(`Receipt ${paymentRecord.receipt_no} generated and payment recorded successfully`)
-      queryClient.invalidateQueries({ queryKey: ['payments'] })
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
-      queryClient.invalidateQueries({ queryKey: ['student-fee-ledger', studentId] })
+    onSuccess: async (result) => {
+      idempotencyKeyRef.current = null
+      success(`Receipt ${result.receipt_no} issued successfully`)
+
+      // Invalidate targeted queries using Phase A invalidation helper
+      await invalidateAfterPaymentRecorded(queryClient, { invoiceId, studentId })
+
+      // Redirect to invoice detail view showing fresh balance and receipt history
       router.push(`/invoices/${invoiceId}`)
     },
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (isOverpaying) {
-      toast({
-        type: 'info',
-        title: 'Overpayment Adjustment',
-        message: 'The entered payment amount exceeds current balance due. Recording as credit balance adjustment.',
-      })
-    }
     recordPaymentMutation.mutate()
   }
 
@@ -257,6 +266,15 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
         </div>
       </div>
 
+      {/* Error Banner for Unmasked Database / RPC Exceptions */}
+      {formError && (
+        <ErrorBanner
+          error={formError}
+          title="Payment Processing Exception"
+          onDismiss={() => setFormError(null)}
+        />
+      )}
+
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Form (Left 2 Columns) */}
         <div className="lg:col-span-2 space-y-6">
@@ -272,22 +290,15 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Select Student *
                 </label>
-                <select
-                  required
+                <SearchableStudentSelect
+                  students={studentsList || []}
                   value={studentId}
-                  onChange={(e) => {
-                    setStudentId(e.target.value)
+                  onChange={(id) => {
+                    setStudentId(id)
                     setInvoiceId('')
                   }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                >
-                  <option value="">-- Choose student --</option>
-                  {studentsList?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.admission_no}) — {s.phone}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="-- Choose student --"
+                />
               </div>
 
               <div>
@@ -304,6 +315,8 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                   <option value="">
                     {!studentId
                       ? '-- Select student first --'
+                      : loadingInvoices
+                      ? 'Loading open invoices...'
                       : studentInvoices?.length === 0
                       ? 'No open/unpaid invoices found for this student'
                       : '-- Select invoice --'}
@@ -339,7 +352,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                 <input
                   type="number"
                   min={1}
-                  step={100}
+                  step={1}
                   required
                   placeholder="e.g. 50000"
                   value={amount}
@@ -468,7 +481,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-2xs flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
                   <span>
-                    Payment amount exceeds current invoice balance. The excess will reflect as credit.
+                    Payment amount exceeds current invoice balance. Database RPC will validate overpayment limits.
                   </span>
                 </div>
               )}
@@ -487,7 +500,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
               </button>
 
               <p className="text-2xs text-gray-400 text-center">
-                Payments are immutable once generated to preserve ledger auditability.
+                Payments are processed authoritatively via DB RPC and immutable once recorded.
               </p>
             </div>
           </div>

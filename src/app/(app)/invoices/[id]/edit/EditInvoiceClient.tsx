@@ -4,6 +4,7 @@ import React from 'react'
 import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { InvoiceForm } from '@/app/(app)/invoices/new/InvoiceForm'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { AlertCircle } from 'lucide-react'
@@ -15,7 +16,7 @@ export function EditInvoiceClient() {
   const supabase = createClient()
 
   const { data: invoice, isLoading, isError } = useQuery({
-    queryKey: ['invoice-edit', invoiceId],
+    queryKey: queryKeys.invoices.edit(invoiceId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('invoices')

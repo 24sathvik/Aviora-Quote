@@ -1,13 +1,18 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { recordPayment } from '@/lib/rpc/financial'
+import { invalidateAfterPaymentRecorded } from '@/lib/rpc/invalidation'
+import { generateIdempotencyKey } from '@/lib/utils/idempotency'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { useToast } from '@/components/ui/Toast'
 import {
   ArrowLeft,
@@ -26,8 +31,9 @@ import {
   CreditCard,
   Layers,
   Loader2,
+  X,
 } from 'lucide-react'
-import type { Invoice, InvoiceStatus, CompanySettings } from '@/types/database'
+import type { Invoice, InvoiceStatus, CompanySettings, PaymentMode } from '@/types/database'
 
 export function InvoiceDetail() {
   const params = useParams()
@@ -38,9 +44,21 @@ export function InvoiceDetail() {
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
 
+  // Inline Record Payment Modal state
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState<number | ''>('')
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('bank_transfer')
+  const [referenceNo, setReferenceNo] = useState('')
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
+  const [paymentNotes, setPaymentNotes] = useState('')
+  const [paymentError, setPaymentError] = useState<string | null>(null)
+
+  // Idempotency Key Ref for modal payment submission
+  const idempotencyKeyRef = useRef<string | null>(null)
+
   // Fetch full invoice record with relations, line items, and invoice_balances view
   const { data: invoice, isLoading, isError } = useQuery({
-    queryKey: ['invoice', invoiceId],
+    queryKey: queryKeys.invoices.detail(invoiceId),
     queryFn: async () => {
       const { data: rawInvoice, error } = await supabase
         .from('invoices')
@@ -104,7 +122,7 @@ export function InvoiceDetail() {
       return {
         ...rawInvoice,
         invoice_balances: balanceData || {
-          invoice_id: rawInvoice.id,
+          invoice_id: invoiceId,
           grand_total: rawInvoice.grand_total,
           amount_paid: 0,
           balance_due: rawInvoice.grand_total,
@@ -116,10 +134,57 @@ export function InvoiceDetail() {
 
   // Fetch company branding
   const { data: companySettings } = useQuery({
-    queryKey: ['company-settings'],
+    queryKey: queryKeys.companySettings,
     queryFn: async () => {
       const { data } = await supabase.from('company_settings').select('*').limit(1).maybeSingle()
       return (data || null) as unknown as CompanySettings
+    },
+  })
+
+  // Record Payment Mutation (Authoritative DB RPC execution)
+  const recordPaymentMutation = useMutation({
+    mutationFn: async () => {
+      setPaymentError(null)
+      const numericAmount = typeof paymentAmount === 'number' ? paymentAmount : 0
+
+      if (!numericAmount || numericAmount <= 0) {
+        throw new Error('Payment amount must be greater than zero')
+      }
+
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = generateIdempotencyKey()
+      }
+
+      const result = await recordPayment({
+        invoiceId,
+        amount: numericAmount,
+        paymentDate,
+        paymentMode,
+        referenceNo: referenceNo.trim() || null,
+        notes: paymentNotes.trim() || null,
+        idempotencyKey: idempotencyKeyRef.current,
+      })
+
+      return result
+    },
+    onError: (err: Error) => {
+      setPaymentError(err.message)
+      toastError('Payment recording failed', err.message)
+    },
+    onSuccess: async (result) => {
+      idempotencyKeyRef.current = null
+      success(`Receipt ${result.receipt_no} issued successfully`)
+      setIsPaymentModalOpen(false)
+      setPaymentAmount('')
+      setReferenceNo('')
+      setPaymentNotes('')
+      setPaymentError(null)
+
+      // Invalidate targeted queries using Phase A invalidation helper
+      await invalidateAfterPaymentRecorded(queryClient, {
+        invoiceId,
+        studentId: invoice?.student_id,
+      })
     },
   })
 
@@ -133,10 +198,10 @@ export function InvoiceDetail() {
       if (error) throw error
     },
     onMutate: async () => {
-      await queryClient.cancelQueries({ queryKey: ['invoice', invoiceId] })
-      const prev = queryClient.getQueryData<Invoice>(['invoice', invoiceId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.invoices.detail(invoiceId) })
+      const prev = queryClient.getQueryData<Invoice>(queryKeys.invoices.detail(invoiceId))
       if (prev) {
-        queryClient.setQueryData<Invoice>(['invoice', invoiceId], {
+        queryClient.setQueryData<Invoice>(queryKeys.invoices.detail(invoiceId), {
           ...prev,
           status: 'cancelled',
         })
@@ -144,7 +209,7 @@ export function InvoiceDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['invoice', invoiceId], context?.prev)
+      queryClient.setQueryData(queryKeys.invoices.detail(invoiceId), context?.prev)
       toastError('Failed to cancel invoice', err.message)
     },
     onSuccess: () => {
@@ -152,8 +217,8 @@ export function InvoiceDetail() {
       setIsCancelModalOpen(false)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices.detail(invoiceId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all })
     },
   })
 
@@ -168,8 +233,8 @@ export function InvoiceDetail() {
     },
     onSuccess: () => {
       success('Invoice marked as Issued/Sent')
-      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices.detail(invoiceId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.invoices.all })
     },
   })
 
@@ -246,13 +311,17 @@ export function InvoiceDetail() {
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-3">
           {balanceDue > 0 && invoice.status !== 'cancelled' && (
-            <Link
-              href={`/payments/new?invoice_id=${invoice.id}`}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors"
+            <button
+              onClick={() => {
+                setPaymentAmount(balanceDue)
+                setPaymentError(null)
+                setIsPaymentModalOpen(true)
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs transition-colors cursor-pointer"
             >
               <CreditCard className="w-3.5 h-3.5" />
               Record Payment
-            </Link>
+            </button>
           )}
 
           {invoice.status === 'draft' && (
@@ -279,271 +348,210 @@ export function InvoiceDetail() {
           {invoice.status !== 'cancelled' && (
             <button
               onClick={() => setIsCancelModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
             >
               <XCircle className="w-3.5 h-3.5" />
               Cancel Invoice
             </button>
           )}
-
-          <a
-            href={`/api/invoices/${invoice.id}/pdf`}
-            download
-            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-navy-800 hover:bg-navy-900 rounded-lg shadow-xs transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download PDF
-          </a>
         </div>
       </div>
 
-      {/* Invoice Overview Document Sheet */}
+      {/* Main Document Layout */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        {/* Banner Bar */}
-        <div className="bg-navy-900 text-white px-8 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <span className="text-2xs uppercase tracking-widest text-accent font-bold">
-              Official Tax Invoice & Fee Schedule
-            </span>
-            <div className="text-2xl font-mono font-bold mt-0.5">{invoice.invoice_no}</div>
+        {/* Document Banner */}
+        <div className="p-6 bg-linear-to-r from-navy-900 via-navy-800 to-navy-950 text-white flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-extrabold tracking-tight font-mono">
+                {invoice.invoice_no}
+              </h2>
+              <StatusBadge status={computedStatus as StatusType} />
+            </div>
+            <p className="text-xs text-navy-200">
+              Tax Invoice Issued: {new Date(invoice.invoice_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })} | Payment Due: {new Date(invoice.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+            </p>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 bg-white/10 p-4 rounded-xl backdrop-blur-xs border border-white/10">
             <div className="text-right">
-              <span className="text-2xs text-gray-400 block">Computed Status</span>
-              <div className="mt-0.5">
-                <StatusBadge status={computedStatus as StatusType} />
-              </div>
-            </div>
-
-            <div className="text-right pl-6 border-l border-navy-800">
-              <span className="text-2xs text-gray-400 block">Balance Due</span>
-              <div className="text-xl font-mono font-bold text-amber-300 mt-0.5">
+              <span className="text-2xs uppercase tracking-wider text-navy-200 block font-semibold">
+                Balance Outstanding
+              </span>
+              <span className="text-2xl font-extrabold font-mono text-white">
                 {formatCurrency(balanceDue)}
-              </div>
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Body Content */}
+        {/* Invoice Body Content */}
         <div className="p-8 space-y-8">
           {/* Metadata Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6 border-b border-gray-200">
-            {/* Student & Course Details */}
-            <div className="space-y-3">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
-                Billed To (Student)
-              </span>
-              <div className="space-y-1 text-xs text-gray-600">
-                <div className="text-base font-bold text-gray-900">
-                  {student?.name || 'Enrolled Student'}
-                </div>
-                <div className="font-mono text-navy-800 font-semibold">
-                  Admission No: {student?.admission_no}
-                </div>
-                {student?.phone && <div>Phone: {student.phone}</div>}
-                {student?.email && <div>Email: {student.email}</div>}
-                {student?.address && (
-                  <div className="text-gray-500 pt-1">{student.address}</div>
-                )}
-                <div className="pt-2 text-gray-900 font-medium">
-                  Program: {course?.name || 'Aviation Pilot Training'}
-                  {term && <span className="text-navy-700"> • {term.term_label}</span>}
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pb-8 border-b border-gray-100">
+            <div>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                Billed To (Student Information)
+              </h3>
+              <div className="space-y-1">
+                <p className="text-base font-bold text-gray-900">{student?.name}</p>
+                <p className="text-xs text-gray-600 font-mono">Admission No: {student?.admission_no}</p>
+                {student?.phone && <p className="text-xs text-gray-600">Phone: {student.phone}</p>}
+                {student?.email && <p className="text-xs text-gray-600">Email: {student.email}</p>}
+                {student?.address && <p className="text-xs text-gray-500 mt-1">{student.address}</p>}
               </div>
             </div>
 
-            {/* Invoice Dates & Ledger Details */}
-            <div className="space-y-3 md:text-right">
-              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block">
-                Invoice Details
-              </span>
-              <div className="space-y-1 text-xs text-gray-600">
-                <div>
-                  Invoice Date:{' '}
-                  <strong className="text-gray-900">
-                    {new Date(invoice.invoice_date).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </strong>
-                </div>
-                <div>
-                  Payment Due Date:{' '}
-                  <strong className="text-rose-700 font-bold">
-                    {new Date(invoice.due_date).toLocaleDateString('en-IN', {
-                      day: '2-digit',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </strong>
-                </div>
-                <div>
-                  Financial Year:{' '}
-                  <strong className="text-gray-900">FY {invoice.fy_label}</strong>
-                </div>
-                <div>
-                  Payment State:{' '}
-                  <strong className="text-gray-900 uppercase font-mono">{computedStatus}</strong>
-                </div>
+            <div>
+              <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">
+                Academic Program & Term
+              </h3>
+              <div className="space-y-1">
+                <p className="text-base font-bold text-gray-900">{course?.name || 'Standard Curriculum'}</p>
+                <p className="text-xs text-gray-600">
+                  {term?.term_label ? `Billing Term: ${term.term_label}` : 'General Tuition Fee'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Batch: {invoice.enrollments?.batch_year ? `Batch ${invoice.enrollments.batch_year}` : 'Current Academic Session'}
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Itemized Table */}
+          {/* Line Items Table */}
           <div className="space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-              Itemized Fee Heads & Services Breakdown
-            </h3>
-
-            <div className="overflow-x-auto border border-gray-200 rounded-lg">
+            <h3 className="text-sm font-bold text-gray-900">Fee Head Breakdown</h3>
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
               <table className="w-full text-left text-xs">
-                <thead className="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold uppercase tracking-wider text-2xs">
                   <tr>
-                    <th scope="col" className="px-4 py-3">Fee Component / Service</th>
-                    <th scope="col" className="px-4 py-3 text-center">Qty</th>
-                    <th scope="col" className="px-4 py-3 text-right">Unit Rate</th>
-                    <th scope="col" className="px-4 py-3 text-right">Line Total</th>
+                    <th className="px-4 py-3">#</th>
+                    <th className="px-4 py-3">Fee Component / Description</th>
+                    <th className="px-4 py-3 text-center">Qty</th>
+                    <th className="px-4 py-3 text-right">Unit Price</th>
+                    <th className="px-4 py-3 text-right">Line Total</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {items.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50/50">
-                      <td className="px-4 py-3.5 font-medium text-gray-900">{item.description}</td>
-                      <td className="px-4 py-3.5 text-center text-gray-600">{item.quantity}</td>
-                      <td className="px-4 py-3.5 text-right text-gray-600 font-mono">
-                        {formatCurrency(item.unit_price)}
-                      </td>
-                      <td className="px-4 py-3.5 text-right font-mono font-bold text-gray-900">
-                        {formatCurrency(item.line_total)}
+                <tbody className="divide-y divide-gray-100">
+                  {items.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6 text-center text-gray-400">
+                        No itemized line items recorded.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    items.map((item, idx) => (
+                      <tr key={item.id || idx}>
+                        <td className="px-4 py-3 text-gray-400">{idx + 1}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{item.description}</td>
+                        <td className="px-4 py-3 text-center text-gray-600">{item.quantity}</td>
+                        <td className="px-4 py-3 text-right font-mono text-gray-600">{formatCurrency(item.unit_price)}</td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">{formatCurrency(item.line_total)}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Totals & Notes Summary Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-            {/* Notes & Terms */}
-            <div className="space-y-2">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                Payment Guidelines & Notes
-              </h4>
-              <div className="p-4 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-600 whitespace-pre-line leading-relaxed">
-                {invoice.notes ||
-                  '1. Payment must reference the tax invoice number.\n2. Invoices overdue beyond 15 days may incur late fee adjustments.\n3. Digital payment receipts are issued upon bank realization.'}
-              </div>
-            </div>
-
-            {/* Financial Ledger Breakdown */}
-            <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 space-y-3 text-xs">
+          {/* Financial Calculation Summary Table */}
+          <div className="flex justify-end pt-4">
+            <div className="w-full max-w-xs space-y-2 text-xs">
               <div className="flex justify-between text-gray-600">
-                <span>Gross Term Subtotal:</span>
-                <span className="font-semibold text-gray-900 font-mono">
-                  {formatCurrency(invoice.subtotal)}
-                </span>
+                <span>Subtotal</span>
+                <span className="font-mono font-semibold text-gray-900">{formatCurrency(invoice.subtotal)}</span>
               </div>
 
-              {invoice.previous_outstanding > 0 && (
-                <div className="flex justify-between text-amber-800 font-medium">
-                  <span>Previous Ledger Outstanding:</span>
-                  <span className="font-mono">+ {formatCurrency(invoice.previous_outstanding)}</span>
+              {Number(invoice.previous_outstanding) > 0 && (
+                <div className="flex justify-between text-amber-800">
+                  <span>Previous Outstanding</span>
+                  <span className="font-mono font-semibold">+ {formatCurrency(invoice.previous_outstanding)}</span>
                 </div>
               )}
 
-              {invoice.discount_amount > 0 && (
-                <div className="flex justify-between text-rose-700">
-                  <span>Early Bird / Special Discount:</span>
-                  <span className="font-mono font-semibold">
-                    - {formatCurrency(invoice.discount_amount)}
-                  </span>
+              {Number(invoice.discount_amount) > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>Discount</span>
+                  <span className="font-mono font-semibold">- {formatCurrency(invoice.discount_amount)}</span>
                 </div>
               )}
 
-              {invoice.scholarship_amount > 0 && (
-                <div className="flex justify-between text-rose-700">
-                  <span>Merit Scholarship Deduction:</span>
-                  <span className="font-mono font-semibold">
-                    - {formatCurrency(invoice.scholarship_amount)}
-                  </span>
+              {Number(invoice.scholarship_amount) > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>Scholarship</span>
+                  <span className="font-mono font-semibold">- {formatCurrency(invoice.scholarship_amount)}</span>
                 </div>
               )}
 
-              {invoice.coupon_amount > 0 && (
-                <div className="flex justify-between text-rose-700">
-                  <span>Promotional Coupon Code:</span>
-                  <span className="font-mono font-semibold">
-                    - {formatCurrency(invoice.coupon_amount)}
-                  </span>
+              {Number(invoice.coupon_amount) > 0 && (
+                <div className="flex justify-between text-emerald-700">
+                  <span>Coupon Deduction</span>
+                  <span className="font-mono font-semibold">- {formatCurrency(invoice.coupon_amount)}</span>
                 </div>
               )}
 
-              {invoice.gst_percent > 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Applicable GST ({invoice.gst_percent}%):</span>
-                  <span className="font-semibold text-gray-900 font-mono">
-                    + {formatCurrency(invoice.gst_amount)}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex justify-between text-sm font-extrabold text-navy-950 pt-3 border-t border-gray-200">
-                <span>Grand Total:</span>
-                <span className="font-mono">{formatCurrency(invoice.grand_total)}</span>
+              <div className="flex justify-between text-gray-600 pt-2 border-t border-gray-100">
+                <span>GST Tax ({invoice.gst_percent}%)</span>
+                <span className="font-mono font-semibold text-gray-900">{formatCurrency(invoice.gst_amount)}</span>
               </div>
 
-              <div className="flex justify-between text-emerald-800 font-medium pt-1">
-                <span>Amount Paid to Date:</span>
-                <span className="font-mono font-bold">{formatCurrency(amountPaid)}</span>
+              <div className="flex justify-between text-sm font-bold text-gray-900 pt-2 border-t border-gray-200">
+                <span>Grand Total</span>
+                <span className="font-mono font-extrabold text-navy-900">{formatCurrency(invoice.grand_total)}</span>
               </div>
 
-              <div className="flex justify-between text-base font-extrabold pt-2 border-t border-gray-300">
-                <span className={balanceDue > 0 ? 'text-rose-700' : 'text-emerald-700'}>
-                  Net Balance Due:
-                </span>
-                <span className={balanceDue > 0 ? 'text-rose-700 font-mono' : 'text-emerald-700 font-mono'}>
-                  {formatCurrency(balanceDue)}
-                </span>
+              <div className="flex justify-between text-xs font-semibold text-emerald-800 pt-1">
+                <span>Total Paid</span>
+                <span className="font-mono">{formatCurrency(amountPaid)}</span>
+              </div>
+
+              <div className="flex justify-between text-xs font-bold text-rose-700 pt-1 border-t border-gray-100">
+                <span>Balance Due</span>
+                <span className="font-mono text-sm">{formatCurrency(balanceDue)}</span>
               </div>
             </div>
           </div>
 
-          {/* Payment History Section (Phase 7 Integration Target) */}
-          <div className="pt-6 border-t border-gray-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-navy-700" />
-                Payment Transaction History
-              </h3>
-              <span className="text-2xs text-gray-400">
-                {payments.length} {payments.length === 1 ? 'Record' : 'Records'}
+          {/* Payment Receipts History Section */}
+          <div className="space-y-4 pt-6 border-t border-gray-200">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center justify-between">
+              <span>Receipts & Payment History</span>
+              <span className="text-2xs font-normal text-gray-500">
+                {payments.length} payment receipt(s) recorded
               </span>
-            </div>
+            </h3>
 
             {payments.length === 0 ? (
-              <div className="p-6 text-center bg-gray-50/70 rounded-lg border border-dashed border-gray-200 text-xs text-gray-500">
-                No payment transactions recorded for this invoice yet. Payments recorded in Phase 7 will reflect here automatically.
-              </div>
+              <p className="text-xs text-gray-400 italic py-2">
+                No payments have been recorded against this invoice yet.
+              </p>
             ) : (
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <div className="overflow-x-auto rounded-lg border border-gray-200">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-gray-50 text-gray-600 font-semibold border-b border-gray-200">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold uppercase tracking-wider text-2xs">
                     <tr>
-                      <th scope="col" className="px-4 py-2.5">Receipt Ref</th>
-                      <th scope="col" className="px-4 py-2.5">Date</th>
-                      <th scope="col" className="px-4 py-2.5">Payment Mode</th>
-                      <th scope="col" className="px-4 py-2.5">Transaction Ref</th>
-                      <th scope="col" className="px-4 py-2.5 text-right">Amount Paid</th>
+                      <th className="px-4 py-3">Receipt No</th>
+                      <th className="px-4 py-3">Date</th>
+                      <th className="px-4 py-3">Mode</th>
+                      <th className="px-4 py-3">Reference No</th>
+                      <th className="px-4 py-3 text-right">Amount Paid</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-100">
                     {payments.map((p) => (
                       <tr key={p.id}>
-                        <td className="px-4 py-3 font-mono font-semibold text-navy-800">
-                          {p.receipt_no || 'AV/RCT/00001'}
+                        <td className="px-4 py-3 font-mono font-semibold text-navy-800 flex items-center gap-2">
+                          {p.receipt_no}
+                          <a
+                            href={`/api/payments/${p.id}/pdf`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-1 text-gray-400 hover:text-navy-700 rounded transition-colors"
+                            title="Download Receipt PDF"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           {new Date(p.payment_date).toLocaleDateString('en-IN', {
@@ -588,6 +596,137 @@ export function InvoiceDetail() {
           </div>
         </div>
       </div>
+
+      {/* Inline Record Payment Modal */}
+      {isPaymentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Record Payment for {invoice.invoice_no}</h3>
+                <p className="text-2xs text-gray-500">Student: {student?.name}</p>
+              </div>
+              <button
+                onClick={() => setIsPaymentModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {paymentError && (
+              <ErrorBanner
+                error={paymentError}
+                title="Payment Error"
+                onDismiss={() => setPaymentError(null)}
+              />
+            )}
+
+            <div className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <div>
+                  <span className="text-2xs text-gray-500 block">Invoice Total</span>
+                  <span className="font-mono font-bold text-gray-900">{formatCurrency(invoice.grand_total)}</span>
+                </div>
+                <div>
+                  <span className="text-2xs text-gray-500 block">Current Balance Due</span>
+                  <span className="font-mono font-bold text-rose-700">{formatCurrency(balanceDue)}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold text-gray-700 mb-1">
+                  Payment Amount (₹) *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  step={100}
+                  required
+                  value={paymentAmount}
+                  onChange={(e) =>
+                    setPaymentAmount(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)
+                  }
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono font-bold text-navy-900 shadow-xs focus:ring-accent focus:border-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold text-gray-700 mb-1">
+                  Payment Mode *
+                </label>
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+                >
+                  <option value="bank_transfer">Bank Transfer (NEFT / RTGS / IMPS)</option>
+                  <option value="upi">UPI (GPay / PhonePe / QR Transfer)</option>
+                  <option value="cheque">Bank Demand Draft / Cheque</option>
+                  <option value="cash">Counter Cash Realization</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold text-gray-700 mb-1">
+                  Reference No / UTR / Cheque No
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. UTR987654321"
+                  value={referenceNo}
+                  onChange={(e) => setReferenceNo(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono uppercase shadow-xs focus:ring-accent focus:border-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold text-gray-700 mb-1">
+                  Payment Date *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-semibold text-gray-700 mb-1">
+                  Notes / Remarks
+                </label>
+                <textarea
+                  rows={2}
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-xs shadow-xs focus:ring-accent focus:border-accent"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsPaymentModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => recordPaymentMutation.mutate()}
+                disabled={recordPaymentMutation.isPending || !paymentAmount}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-xs disabled:opacity-50"
+              >
+                {recordPaymentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                Confirm Payment & Issue Receipt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cancel Confirmation Modal */}
       {isCancelModalOpen && (

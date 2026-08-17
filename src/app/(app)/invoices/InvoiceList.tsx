@@ -2,8 +2,11 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
+import { cancelInvoice } from '@/lib/rpc/financial'
+import { invalidateAfterInvoiceCancelled } from '@/lib/rpc/invalidation'
 import { formatCurrency } from '@/lib/utils/currency'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -48,7 +51,7 @@ export function InvoiceList() {
 
   // Server-side paginated and filtered query joined with invoice_balances
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['invoices', page, debouncedSearch, statusFilter],
+    queryKey: queryKeys.invoices.list({ page, search: debouncedSearch, status: statusFilter }),
     queryFn: async () => {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
@@ -114,12 +117,12 @@ export function InvoiceList() {
         totalCount: count || 0,
       }
     },
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
 
   // Live Summary Overview Metrics from invoice_balances view
   const { data: metrics } = useQuery({
-    queryKey: ['invoice-summary-strip-metrics'],
+    queryKey: queryKeys.invoices.summaryMetrics,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('invoice_balances')
@@ -143,19 +146,15 @@ export function InvoiceList() {
     },
   })
 
-  // Cancel Invoice Mutation
+  // Cancel Invoice Mutation using RPC wrapper
   const cancelMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('invoices')
-        .update({ status: 'cancelled' as InvoiceStatus })
-        .eq('id', id)
-      if (error) throw error
+      await cancelInvoice({ invoiceId: id, reason: 'Cancelled from invoice list management view' })
     },
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      invalidateAfterInvoiceCancelled(queryClient, { invoiceId: id })
       success('Invoice cancelled successfully')
       setCancellingInvoice(null)
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
     },
     onError: (err: Error) => {
       toastError('Failed to cancel invoice', err.message)

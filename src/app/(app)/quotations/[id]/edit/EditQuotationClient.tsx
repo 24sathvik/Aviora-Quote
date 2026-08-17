@@ -4,6 +4,7 @@ import React from 'react'
 import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { QuotationForm } from '@/app/(app)/quotations/new/QuotationForm'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { AlertCircle } from 'lucide-react'
@@ -15,7 +16,7 @@ export function EditQuotationClient() {
   const supabase = createClient()
 
   const { data: quotation, isLoading, isError } = useQuery({
-    queryKey: ['quotation-edit', quoteId],
+    queryKey: queryKeys.quotations.edit(quoteId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('quotations')

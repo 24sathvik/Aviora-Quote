@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { generateQuotationNumber } from '@/lib/numbering/generate-number'
 import { calculateQuotationTotals } from '@/lib/quotations/calculations'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { SearchableStudentSelect } from '@/components/ui/SearchableStudentSelect'
 import {
   FileText,
   Plus,
@@ -95,7 +97,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
 
   // Fetch active students for selector
   const { data: studentsList, isLoading: loadingStudents } = useQuery({
-    queryKey: ['students-for-quote'],
+    queryKey: queryKeys.students.forQuote,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
@@ -106,11 +108,9 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
     },
   })
 
-
-
   // Fetch courses and course terms for pre-fill helper
   const { data: coursesWithTerms } = useQuery({
-    queryKey: ['courses-with-terms-for-quote'],
+    queryKey: queryKeys.courses.withTermsForQuote,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('courses')
@@ -280,8 +280,10 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
           ? `Quotation ${data.quoteNo} updated successfully`
           : `Quotation ${data.quoteNo} created successfully`
       )
-      queryClient.invalidateQueries({ queryKey: ['quotations'] })
-      queryClient.invalidateQueries({ queryKey: ['quotation', data.id] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all })
+      if (data?.id) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.quotations.detail(data.id) })
+      }
       router.push(`/quotations/${data.id}`)
     },
   })
@@ -384,18 +386,12 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Select Enrolled Student *
                 </label>
-                <select
+                <SearchableStudentSelect
+                  students={studentsList || []}
                   value={studentId}
-                  onChange={(e) => setStudentId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                >
-                  <option value="">-- Choose a student --</option>
-                  {studentsList?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.admission_no}) — {s.phone}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(id) => setStudentId(id)}
+                  placeholder="-- Choose a student --"
+                />
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -579,7 +575,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
                         <input
                           type="number"
                           min={0}
-                          step={100}
+                          step={1}
                           required
                           value={item.unit_price}
                           onChange={(e) =>
@@ -598,7 +594,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
                         <input
                           type="number"
                           min={0}
-                          step={100}
+                          step={1}
                           value={item.discount_amount}
                           onChange={(e) =>
                             handleUpdateItem(index, {
@@ -670,7 +666,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
                 <input
                   type="number"
                   min={0}
-                  step={100}
+                  step={1}
                   value={overallDiscount}
                   onChange={(e) =>
                     setOverallDiscount(Math.max(0, parseFloat(e.target.value) || 0))

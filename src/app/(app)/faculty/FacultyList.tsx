@@ -4,23 +4,28 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
-  UserCheck,
-  Plus,
+  Users,
   Search,
-  Phone,
-  Mail,
-  Building,
-  Calendar,
-  Edit2,
-  CheckCircle2,
-  XCircle,
-  Eye,
-  Loader2,
-  X,
+  Plus,
+  Filter,
+  UserCheck,
+  UserX,
   CreditCard,
+  Building,
+  Mail,
+  Phone,
+  FileSpreadsheet,
+  Eye,
+  Edit2,
+  X,
+  Loader2,
+  Calendar,
+  XCircle,
+  CheckCircle2,
   Briefcase,
 } from 'lucide-react'
 import type { Faculty } from '@/types/database'
@@ -37,7 +42,7 @@ export function FacultyList() {
 
   // Fetch faculty list
   const { data: facultyList, isLoading } = useQuery({
-    queryKey: ['faculty'],
+    queryKey: queryKeys.faculty.all,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('faculty')
@@ -89,12 +94,12 @@ export function FacultyList() {
       }
     },
     onMutate: async (newFac) => {
-      await queryClient.cancelQueries({ queryKey: ['faculty'] })
-      const prev = queryClient.getQueryData<Faculty[]>(['faculty'])
+      await queryClient.cancelQueries({ queryKey: queryKeys.faculty.all })
+      const prev = queryClient.getQueryData<Faculty[]>(queryKeys.faculty.all)
 
       if (prev) {
         if (newFac.id) {
-          queryClient.setQueryData<Faculty[]>(['faculty'], (old) =>
+          queryClient.setQueryData<Faculty[]>(queryKeys.faculty.all, (old) =>
             (old || []).map((f) =>
               f.id === newFac.id ? ({ ...f, ...newFac } as Faculty) : f
             )
@@ -115,7 +120,7 @@ export function FacultyList() {
             active: true,
             created_at: new Date().toISOString(),
           }
-          queryClient.setQueryData<Faculty[]>(['faculty'], (old) => [
+          queryClient.setQueryData<Faculty[]>(queryKeys.faculty.all, (old) => [
             optimisticFaculty,
             ...(old || []),
           ])
@@ -124,16 +129,16 @@ export function FacultyList() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['faculty'], context?.prev)
+      queryClient.setQueryData(queryKeys.faculty.all, context?.prev)
       toastError('Failed to save faculty record', err.message)
     },
     onSuccess: () => {
-      success(editingFaculty ? 'Faculty profile updated' : 'Faculty member added successfully')
+      success('Faculty record saved successfully')
       setIsAddModalOpen(false)
       setEditingFaculty(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['faculty'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.all, refetchType: 'all' })
     },
   })
 
@@ -147,24 +152,24 @@ export function FacultyList() {
       if (error) throw error
     },
     onMutate: async ({ id, active }) => {
-      await queryClient.cancelQueries({ queryKey: ['faculty'] })
-      const prev = queryClient.getQueryData<Faculty[]>(['faculty'])
+      await queryClient.cancelQueries({ queryKey: queryKeys.faculty.all })
+      const prev = queryClient.getQueryData<Faculty[]>(queryKeys.faculty.all)
       if (prev) {
-        queryClient.setQueryData<Faculty[]>(['faculty'], (old) =>
+        queryClient.setQueryData<Faculty[]>(queryKeys.faculty.all, (old) =>
           (old || []).map((f) => (f.id === id ? { ...f, active } : f))
         )
       }
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['faculty'], context?.prev)
+      queryClient.setQueryData(queryKeys.faculty.all, context?.prev)
       toastError('Failed to update faculty status', err.message)
     },
     onSuccess: (_, vars) => {
       success(vars.active ? 'Faculty member activated' : 'Faculty deactivated (retained for past payslips)')
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['faculty'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.all, refetchType: 'all' })
     },
   })
 

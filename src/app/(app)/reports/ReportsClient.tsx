@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { exportToCsv } from '@/lib/utils/csv'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
@@ -34,7 +35,7 @@ export function ReportsClient() {
 
   // 1. Outstanding Fees Query (students with balance_due > 0)
   const { data: outstandingData = [], isLoading: loadingOutstanding } = useQuery({
-    queryKey: ['report-outstanding-fees', startDate, endDate],
+    queryKey: queryKeys.reports.outstanding({ startDate, endDate }),
     enabled: activeTab === 'outstanding',
     queryFn: async () => {
       let query = supabase
@@ -98,7 +99,7 @@ export function ReportsClient() {
 
   // 2. Collection Report Query (Payments filterable by date)
   const { data: collectionsData = [], isLoading: loadingCollections } = useQuery({
-    queryKey: ['report-collections', startDate, endDate],
+    queryKey: queryKeys.reports.collections({ startDate, endDate }),
     enabled: activeTab === 'collections',
     queryFn: async () => {
       let query = supabase
@@ -127,7 +128,7 @@ export function ReportsClient() {
 
   // 3. Course-wise Fee Report Query
   const { data: courseReportData = [], isLoading: loadingCourseReport } = useQuery({
-    queryKey: ['report-courses', startDate, endDate],
+    queryKey: queryKeys.reports.courses({ startDate, endDate }),
     enabled: activeTab === 'courses',
     queryFn: async () => {
       let query = supabase
@@ -169,14 +170,10 @@ export function ReportsClient() {
       >()
 
       ;(rawInvoices || []).forEach((inv: any) => {
-        const courseName = inv.enrollments?.courses?.name || 'Unassigned Track'
-        const courseId = inv.enrollments?.courses?.id || 'unassigned'
+        const courseName = (inv.enrollments as any)?.courses?.name || 'Unassigned Track'
+        const courseId = (inv.enrollments as any)?.courses?.id || 'unassigned'
 
-        const bal = balancesMap.get(inv.id) || {
-          grand_total: inv.grand_total,
-          amount_paid: 0,
-          balance_due: inv.grand_total,
-        }
+        const bal = balancesMap.get(inv.id)
         const billed = Number(bal?.grand_total) || 0
         const collected = Number(bal?.amount_paid) || 0
         const outstanding = Number(bal?.balance_due) || 0
@@ -204,7 +201,7 @@ export function ReportsClient() {
 
   // 4. Payroll Report Query
   const { data: payrollReportData = [], isLoading: loadingPayrollReport } = useQuery({
-    queryKey: ['report-payroll', startDate, endDate],
+    queryKey: queryKeys.reports.payroll({ startDate, endDate }),
     enabled: activeTab === 'payroll',
     queryFn: async () => {
       const { data, error } = await supabase

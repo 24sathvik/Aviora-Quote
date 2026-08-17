@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { calculatePayrollTotals } from '@/lib/payroll/calculations'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
@@ -62,13 +63,14 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
 
   // 1. Fetch current effective salary structure (latest effective_from <= CURRENT_DATE)
   const { data: salaryStructure, isLoading: loadingStructure } = useQuery({
-    queryKey: ['faculty-salary-structure', facultyId],
+    queryKey: queryKeys.faculty.salaryStructure(facultyId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('faculty_salary_structures')
         .select('*')
         .eq('faculty_id', facultyId)
         .order('effective_from', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
@@ -79,7 +81,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
 
   // 2. Fetch past payslip history for this faculty member
   const { data: payslips = [], isLoading: loadingPayslips } = useQuery({
-    queryKey: ['faculty-payslip-history', facultyId],
+    queryKey: queryKeys.faculty.payslipHistory(facultyId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('payslips')
@@ -102,7 +104,17 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
       setPfDeduction(salaryStructure.pf_deduction)
       setPtDeduction(salaryStructure.pt_deduction)
       setTdsDeduction(salaryStructure.tds_deduction)
-      setOtherDeductions(salaryStructure.other_deductions)
+      setOtherDeductions(salaryStructure.other_deductions || 0)
+      setEffectiveFrom(salaryStructure.effective_from || new Date().toISOString().split('T')[0])
+    } else {
+      setBasic(50000)
+      setHra(20000)
+      setOtherAllowances(10000)
+      setPfDeduction(3000)
+      setPtDeduction(200)
+      setTdsDeduction(5000)
+      setOtherDeductions(0)
+      setEffectiveFrom(new Date().toISOString().split('T')[0])
     }
     setIsModalOpen(true)
   }
@@ -112,17 +124,21 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
     mutationFn: async (e: React.FormEvent) => {
       e.preventDefault()
 
+      if (!effectiveFrom) {
+        throw new Error('Effective From date is required')
+      }
+
       const { data, error } = await supabase
         .from('faculty_salary_structures')
         .insert({
           faculty_id: facultyId,
-          basic,
-          hra,
-          other_allowances: otherAllowances,
-          pf_deduction: pfDeduction,
-          pt_deduction: ptDeduction,
-          tds_deduction: tdsDeduction,
-          other_deductions: otherDeductions,
+          basic: Number(basic) || 0,
+          hra: Number(hra) || 0,
+          other_allowances: Number(otherAllowances) || 0,
+          pf_deduction: Number(pfDeduction) || 0,
+          pt_deduction: Number(ptDeduction) || 0,
+          tds_deduction: Number(tdsDeduction) || 0,
+          other_deductions: Number(otherDeductions) || 0,
           effective_from: effectiveFrom,
         })
         .select()
@@ -134,12 +150,17 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
     onError: (err: Error) => {
       toastError('Failed to save salary structure', err.message)
     },
-    onSuccess: () => {
+    onSuccess: async (newRecord) => {
       success('New salary structure effective date saved successfully')
       setIsModalOpen(false)
-      queryClient.invalidateQueries({ queryKey: ['faculty-salary-structure', facultyId] })
-      queryClient.invalidateQueries({ queryKey: ['effective-salary-structure'] })
-      queryClient.invalidateQueries({ queryKey: ['faculty', facultyId] })
+      if (newRecord) {
+        queryClient.setQueryData(queryKeys.faculty.salaryStructure(facultyId), newRecord)
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.faculty.salaryStructure(facultyId), refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.faculty.detail(facultyId), refetchType: 'all' }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.faculty.all, refetchType: 'all' }),
+      ])
     },
   })
 
@@ -359,6 +380,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     required
                     value={basic}
                     onChange={(e) => setBasic(parseFloat(e.target.value) || 0)}
@@ -371,6 +393,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     value={hra}
                     onChange={(e) => setHra(parseFloat(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-1.5 shadow-xs"
@@ -382,6 +405,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     value={otherAllowances}
                     onChange={(e) => setOtherAllowances(parseFloat(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-1.5 shadow-xs"
@@ -393,6 +417,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     value={pfDeduction}
                     onChange={(e) => setPfDeduction(parseFloat(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-1.5 shadow-xs"
@@ -404,6 +429,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     value={ptDeduction}
                     onChange={(e) => setPtDeduction(parseFloat(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-1.5 shadow-xs"
@@ -415,6 +441,7 @@ export function FacultySalarySection({ facultyId }: FacultySalarySectionProps) {
                   <input
                     type="number"
                     min={0}
+                    step={1}
                     value={tdsDeduction}
                     onChange={(e) => setTdsDeduction(parseFloat(e.target.value) || 0)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-1.5 shadow-xs"

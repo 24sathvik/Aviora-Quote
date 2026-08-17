@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -47,7 +48,7 @@ export function QuotationList() {
 
   // Server-side paginated and filtered query
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['quotations', page, debouncedSearch, statusFilter],
+    queryKey: queryKeys.quotations.list({ page, search: debouncedSearch, status: statusFilter }),
     queryFn: async () => {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
@@ -75,54 +76,30 @@ export function QuotationList() {
         )
       }
 
-      const { data, count, error } = await query.range(from, to)
+      const { data: quotes, count, error } = await query.range(from, to)
       if (error) throw error
 
       return {
-        quotations: (data || []) as unknown as Quotation[],
+        quotations: (quotes || []) as Quotation[],
         totalCount: count || 0,
       }
     },
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
 
-  // Delete Mutation (Optimistic)
+  // Delete Mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('quotations').delete().eq('id', id)
       if (error) throw error
     },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['quotations'] })
-      const prev = queryClient.getQueryData(['quotations', page, debouncedSearch, statusFilter])
-      if (prev) {
-        queryClient.setQueryData(
-          ['quotations', page, debouncedSearch, statusFilter],
-          (old: { quotations: Quotation[]; totalCount: number } | undefined) =>
-            old
-              ? {
-                  ...old,
-                  quotations: old.quotations.filter((q) => q.id !== id),
-                  totalCount: Math.max(0, old.totalCount - 1),
-                }
-              : old
-        )
-      }
-      return { prev }
-    },
-    onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(
-        ['quotations', page, debouncedSearch, statusFilter],
-        context?.prev
-      )
+    onError: (err: Error) => {
       toastError('Failed to delete quotation', err.message)
     },
     onSuccess: () => {
       success('Quotation removed')
       setDeletingQuote(null)
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['quotations'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.quotations.all, refetchType: 'all' })
     },
   })
 

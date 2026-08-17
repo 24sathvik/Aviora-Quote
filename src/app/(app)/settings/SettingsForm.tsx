@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { Loader2 } from 'lucide-react'
 
@@ -34,7 +35,7 @@ export function SettingsForm() {
   const [saveError, setSaveError] = useState<string | null>(null)
 
   const { data: settings, isLoading } = useQuery({
-    queryKey: ['company_settings'],
+    queryKey: queryKeys.companySettings,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('company_settings')
@@ -73,23 +74,47 @@ export function SettingsForm() {
       let logo_url = values.logo_url
       let signature_url = values.signature_url
 
-      // Upload files if present
+      // Deterministic upload paths for branding assets
       if (logoFile) {
-        const ext = logoFile.name.split('.').pop()
-        const path = `logo-${Date.now()}.${ext}`
-        const { error } = await supabase.storage.from('branding').upload(path, logoFile)
+        const logoPath = 'branding/academy-logo.webp'
+
+        // 1. Upload new logo with upsert: true (safe: if upload fails, previous logo is preserved)
+        const { error } = await supabase.storage
+          .from('branding')
+          .upload(logoPath, logoFile, { upsert: true, contentType: 'image/webp' })
         if (error) throw new Error('Logo upload failed: ' + error.message)
-        const { data } = supabase.storage.from('branding').getPublicUrl(path)
+
+        const { data } = supabase.storage.from('branding').getPublicUrl(logoPath)
         logo_url = data.publicUrl
+
+        // 2. Clean up legacy logo path if previously different
+        if (settings?.logo_url) {
+          const oldPath = settings.logo_url.split('/branding/').pop()
+          if (oldPath && decodeURIComponent(oldPath) !== logoPath) {
+            await supabase.storage.from('branding').remove([decodeURIComponent(oldPath)])
+          }
+        }
       }
 
       if (signatureFile) {
-        const ext = signatureFile.name.split('.').pop()
-        const path = `signature-${Date.now()}.${ext}`
-        const { error } = await supabase.storage.from('branding').upload(path, signatureFile)
+        const signaturePath = 'branding/signature.webp'
+
+        // 1. Upload new signature with upsert: true (safe: if upload fails, previous signature is preserved)
+        const { error } = await supabase.storage
+          .from('branding')
+          .upload(signaturePath, signatureFile, { upsert: true, contentType: 'image/webp' })
         if (error) throw new Error('Signature upload failed: ' + error.message)
-        const { data } = supabase.storage.from('branding').getPublicUrl(path)
+
+        const { data } = supabase.storage.from('branding').getPublicUrl(signaturePath)
         signature_url = data.publicUrl
+
+        // 2. Clean up legacy signature path if previously different
+        if (settings?.signature_url) {
+          const oldPath = settings.signature_url.split('/branding/').pop()
+          if (oldPath && decodeURIComponent(oldPath) !== signaturePath) {
+            await supabase.storage.from('branding').remove([decodeURIComponent(oldPath)])
+          }
+        }
       }
 
       const payload = {
@@ -105,20 +130,20 @@ export function SettingsForm() {
       if (error) throw error
     },
     onMutate: async (newSettings: SettingsValues) => {
-      await queryClient.cancelQueries({ queryKey: ['company_settings'] })
-      const previousSettings = queryClient.getQueryData<SettingsValues | null>(['company_settings'])
-      queryClient.setQueryData<SettingsValues | null>(['company_settings'], (old) => ({
+      await queryClient.cancelQueries({ queryKey: queryKeys.companySettings })
+      const previousSettings = queryClient.getQueryData<SettingsValues | null>(queryKeys.companySettings)
+      queryClient.setQueryData<SettingsValues | null>(queryKeys.companySettings, (old) => ({
         ...(old || {}),
         ...newSettings,
       }))
       return { previousSettings }
     },
     onError: (err: Error, _newSettings, context) => {
-      queryClient.setQueryData(['company_settings'], context?.previousSettings)
+      queryClient.setQueryData(queryKeys.companySettings, context?.previousSettings)
       setSaveError(err.message)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['company_settings'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.companySettings })
       setLogoFile(null)
       setSignatureFile(null)
       setSaveError(null)

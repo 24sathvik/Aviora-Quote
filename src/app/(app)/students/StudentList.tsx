@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
@@ -20,10 +21,11 @@ import {
   Filter,
   GraduationCap,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react'
 import type { Course, Student } from '@/types/database'
 
-const PAGE_SIZE = 25
+const PAGE_SIZE = 15
 
 export function StudentList() {
   const supabase = createClient()
@@ -40,7 +42,7 @@ export function StudentList() {
 
   // Fetch available courses for filter dropdown
   const { data: coursesList } = useQuery({
-    queryKey: ['filter-courses'],
+    queryKey: queryKeys.students.filterList,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('courses')
@@ -62,7 +64,7 @@ export function StudentList() {
 
   // Server-side filtered and paginated query
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['students', page, debouncedSearch, statusFilter, courseFilter],
+    queryKey: queryKeys.students.list({ page, search: debouncedSearch, status: statusFilter, course: courseFilter }),
     queryFn: async () => {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
@@ -86,58 +88,35 @@ export function StudentList() {
       if (debouncedSearch) {
         // Search by name, admission_no, phone, or email
         query = query.or(
-          `name.ilike.%${debouncedSearch}%,admission_no.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%`
+          `name.ilike.%${debouncedSearch}%,admission_no.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%`
         )
       }
 
-      const { data, count, error } = await query.range(from, to)
+      const { data: students, count, error } = await query.range(from, to)
 
       if (error) throw error
 
       return {
-        students: ((data || []) as unknown as Student[]),
+        students: (students || []) as unknown as Student[],
         totalCount: count || 0,
       }
     },
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
 
-  // Optimistic Delete Student Mutation
+  // Delete Student Mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from('students').delete().eq('id', id)
       if (error) throw error
     },
-    onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['students'] })
-      const prev = queryClient.getQueryData<{ students: Student[]; totalCount: number }>([
-        'students',
-        page,
-        debouncedSearch,
-        statusFilter,
-      ])
-
-      if (prev) {
-        queryClient.setQueryData(['students', page, debouncedSearch, statusFilter], {
-          students: prev.students.filter((s) => s.id !== id),
-          totalCount: Math.max(0, prev.totalCount - 1),
-        })
-      }
-      return { prev }
-    },
-    onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(
-        ['students', page, debouncedSearch, statusFilter],
-        context?.prev
-      )
+    onError: (err: Error) => {
       toastError('Failed to delete student', err.message)
     },
     onSuccess: () => {
       success('Student record deleted')
       setDeletingStudent(null)
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all, refetchType: 'all' })
     },
   })
 

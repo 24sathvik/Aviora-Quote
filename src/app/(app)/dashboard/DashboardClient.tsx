@@ -3,242 +3,65 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { createClient } from '@/lib/supabase/client'
+import { getDashboardSummary, type DashboardPeriod } from '@/lib/rpc/reads'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
-import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
   BarChart3,
-  TrendingUp,
   Receipt,
   CreditCard,
   Banknote,
-  Users,
   GraduationCap,
   Calendar,
   ArrowRight,
   FileSpreadsheet,
-  CheckCircle2,
   AlertCircle,
-  Clock,
-  Briefcase,
+  HelpCircle,
 } from 'lucide-react'
-import type { Payment, Invoice } from '@/types/database'
-
-type TimePeriod = 'this_month' | 'this_term' | 'all_time'
 
 export function DashboardClient() {
-  const supabase = createClient()
-  const [period, setPeriod] = useState<TimePeriod>('all_time')
+  const [period, setPeriod] = useState<DashboardPeriod>('all_time')
 
-  // 1. Fee Collection Summary Metrics Query
-  const { data: summary, isLoading: loadingSummary } = useQuery({
-    queryKey: ['dashboard-summary', period],
-    staleTime: 10 * 1000,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      let query = supabase.from('invoices').select('id, invoice_date')
-
-      if (period === 'this_month') {
-        const now = new Date()
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-          .toISOString()
-          .split('T')[0]
-        query = query.gte('invoice_date', startOfMonth)
-      }
-
-      const { data: rawInvoices, error } = await query
-      if (error) throw error
-
-      const invoiceIds = (rawInvoices || []).map((i) => i.id)
-      if (invoiceIds.length === 0) {
-        return { totalBilled: 0, totalCollected: 0, totalOutstanding: 0 }
-      }
-
-      const { data: rawBalances, error: balErr } = await supabase
-        .from('invoice_balances')
-        .select('*')
-        .in('invoice_id', invoiceIds)
-
-      if (balErr) throw balErr
-
-      const balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
-
-      let totalBilled = 0
-      let totalCollected = 0
-      let totalOutstanding = 0
-
-      ;(rawInvoices || []).forEach((inv: any) => {
-        const bal = balancesMap.get(inv.id)
-        totalBilled += Number(bal?.grand_total) || 0
-        totalCollected += Number(bal?.amount_paid) || 0
-        totalOutstanding += Number(bal?.balance_due) || 0
-      })
-
-      return { totalBilled, totalCollected, totalOutstanding }
-    },
+  // Authoritative Single Read RPC Query for Executive Dashboard
+  const { data: summary, isLoading, isError, error } = useQuery({
+    queryKey: queryKeys.dashboard(period),
+    queryFn: () => getDashboardSummary(period),
   })
 
-  // 2. Pending vs Paid Status Breakdown Query
-  const { data: statusCounts, isLoading: loadingStatus } = useQuery({
-    queryKey: ['dashboard-status-counts'],
-    staleTime: 10 * 1000,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('invoice_balances')
-        .select('computed_status, grand_total, amount_paid, balance_due')
+  if (isLoading) {
+    return (
+      <div className="space-y-8">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-10 w-48" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <Skeleton className="h-32 rounded-xl" />
+          <Skeleton className="h-32 rounded-xl" />
+          <Skeleton className="h-32 rounded-xl" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <Skeleton className="h-96 lg:col-span-2 rounded-xl" />
+          <Skeleton className="h-96 rounded-xl" />
+        </div>
+      </div>
+    )
+  }
 
-      if (error) throw error
-      const rows = data || []
-
-      const paid = rows.filter((r) => r.computed_status === 'paid').length
-      const partial = rows.filter((r) => r.computed_status === 'partial').length
-      const pending = rows.filter(
-        (r) =>
-          (r.computed_status === 'sent' || r.computed_status === 'draft') &&
-          Number(r.amount_paid) === 0
-      ).length
-      const overdue = rows.filter((r) => r.computed_status === 'overdue').length
-
-      return { paid, partial, pending, overdue }
-    },
-  })
-
-  // 3. Course-wise Fee Breakdown Query
-  const { data: courseBreakdown = [], isLoading: loadingCourses } = useQuery({
-    queryKey: ['dashboard-course-breakdown'],
-    staleTime: 10 * 1000,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const { data: rawInvoices, error } = await supabase
-        .from('invoices')
-        .select(`
-          id,
-          enrollments (
-            courses (
-              id,
-              name
-            )
-          )
-        `)
-        .neq('status', 'cancelled')
-
-      if (error) throw error
-
-      const invoiceIds = (rawInvoices || []).map((i) => i.id)
-      if (invoiceIds.length === 0) {
-        return []
-      }
-
-      const { data: rawBalances, error: balErr } = await supabase
-        .from('invoice_balances')
-        .select('*')
-        .in('invoice_id', invoiceIds)
-
-      if (balErr) throw balErr
-
-      const balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
-
-      const courseMap = new Map<
-        string,
-        { name: string; billed: number; collected: number; outstanding: number }
-      >()
-
-      ;(rawInvoices || []).forEach((inv: any) => {
-        const courseName = (inv.enrollments as any)?.courses?.name || 'Unassigned Track'
-        const courseId = (inv.enrollments as any)?.courses?.id || 'unassigned'
-
-        const bal = balancesMap.get(inv.id)
-        const billed = Number(bal?.grand_total) || 0
-        const collected = Number(bal?.amount_paid) || 0
-        const outstanding = Number(bal?.balance_due) || 0
-
-        const existing = courseMap.get(courseId) || {
-          name: courseName,
-          billed: 0,
-          collected: 0,
-          outstanding: 0,
-        }
-
-        courseMap.set(courseId, {
-          name: courseName,
-          billed: existing.billed + billed,
-          collected: existing.collected + collected,
-          outstanding: existing.outstanding + outstanding,
-        })
-      })
-
-      return Array.from(courseMap.values())
-    },
-  })
-
-  // 5. Faculty Payroll Summary Query
-  const { data: payrollSummary, isLoading: loadingPayroll } = useQuery({
-    queryKey: ['dashboard-payroll-summary'],
-    staleTime: 10 * 1000,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const now = new Date()
-      const currentMonth = now.getMonth() + 1
-      const currentYear = now.getFullYear()
-
-      const { data, error } = await supabase
-        .from('payslips')
-        .select('net_pay, gross_pay, total_deductions')
-
-      if (error) throw error
-
-      const totalNetDisbursed = (data || []).reduce((s, p) => s + Number(p.net_pay || 0), 0)
-      const countDisbursed = (data || []).length
-
-      return { totalNetDisbursed, countDisbursed, month: currentMonth, year: currentYear }
-    },
-  })
-
-  // 6. Recent Activity Feed Query (Last 10 payments & last 10 invoices)
-  const { data: recentActivity, isLoading: loadingActivity } = useQuery({
-    queryKey: ['dashboard-recent-activity'],
-    staleTime: 10 * 1000,
-    refetchOnWindowFocus: true,
-    queryFn: async () => {
-      const [paymentsRes, invoicesRes] = await Promise.all([
-        supabase
-          .from('payments')
-          .select('id, receipt_no, amount, payment_date, payment_mode, students (name)')
-          .order('created_at', { ascending: false })
-          .limit(10),
-
-        supabase
-          .from('invoices')
-          .select('id, invoice_no, grand_total, invoice_date, status, students (name)')
-          .order('created_at', { ascending: false })
-          .limit(10),
-      ])
-
-      const rawInvoices = invoicesRes.data || []
-      const invoiceIds = rawInvoices.map((i) => i.id)
-
-      let balancesMap = new Map()
-      if (invoiceIds.length > 0) {
-        const { data: rawBalances } = await supabase
-          .from('invoice_balances')
-          .select('invoice_id, computed_status')
-          .in('invoice_id', invoiceIds)
-        balancesMap = new Map((rawBalances || []).map((b: any) => [b.invoice_id, b]))
-      }
-
-      const mergedInvoices = rawInvoices.map((inv: any) => ({
-        ...inv,
-        invoice_balances: balancesMap.get(inv.id),
-      }))
-
-      return {
-        payments: (paymentsRes.data || []) as any[],
-        invoices: mergedInvoices as any[],
-      }
-    },
-  })
+  if (isError || !summary) {
+    return (
+      <div className="bg-white p-12 text-center rounded-xl border border-gray-200 shadow-xs space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-600">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-bold text-gray-900">Failed to load financial dashboard</h3>
+        <p className="text-xs text-gray-500">
+          {(error as Error)?.message || 'An unexpected error occurred while calling get_dashboard_summary.'}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-8">
@@ -248,304 +71,276 @@ export function DashboardClient() {
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
             Executive Financial Dashboard
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Real-time fee collections, outstanding ledgers, course performance, and payroll disbursements.
+          <p className="text-xs text-gray-500 mt-0.5">
+            Authoritative real-time financial summary powered by database read engine
           </p>
         </div>
 
-        {/* Period Selector Tabs */}
-        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-gray-200 shadow-2xs">
-          {[
-            { id: 'this_month', label: 'This Month' },
-            { id: 'all_time', label: 'All-Time Total' },
-          ].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setPeriod(t.id as TimePeriod)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                period === t.id
-                  ? 'bg-navy-800 text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        {/* Period Selector Toggle */}
+        <div className="inline-flex p-1 bg-gray-100/80 rounded-xl border border-gray-200 shadow-2xs self-start sm:self-auto">
+          <button
+            onClick={() => setPeriod('this_month')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+              period === 'this_month'
+                ? 'bg-white text-navy-900 shadow-xs font-bold'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            This Month
+          </button>
+          <button
+            onClick={() => setPeriod('all_time')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+              period === 'all_time'
+                ? 'bg-white text-navy-900 shadow-xs font-bold'
+                : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            All Time
+          </button>
         </div>
       </div>
 
-      {/* 1. Fee Collection Summary Cards */}
+      {/* Financial Summary Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        {/* Total Billed */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-gray-500">
-            <span className="text-xs font-semibold uppercase tracking-wider">
+        {/* Card 1: Billed for Period (Invoice-date based) */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-2xs font-bold uppercase tracking-wider text-gray-500">
               Total Invoiced Billed
             </span>
-            <FileSpreadsheet className="w-5 h-5 text-navy-700" />
-          </div>
-          {loadingSummary ? (
-            <Skeleton className="h-8 w-1/2" />
-          ) : (
-            <div className="text-2xl font-extrabold font-mono text-gray-900">
-              {formatCurrency(summary?.totalBilled || 0)}
+            <div className="w-8 h-8 rounded-lg bg-navy-50 text-navy-700 flex items-center justify-center">
+              <FileSpreadsheet className="w-4 h-4" />
             </div>
-          )}
-          <span className="text-2xs text-gray-400 block">
-            Aggregated gross term invoices issued
-          </span>
+          </div>
+          <div className="text-2xl font-extrabold text-navy-950 font-mono">
+            {formatCurrency(summary.billed_for_period)}
+          </div>
+          <p className="text-2xs text-gray-500 flex items-center gap-1">
+            <Calendar className="w-3 h-3 text-gray-400" />
+            Invoice-date based ({period === 'this_month' ? 'current month' : 'cumulative all time'})
+          </p>
         </div>
 
-        {/* Total Collected */}
-        <div className="bg-white p-6 rounded-xl border border-emerald-200 bg-emerald-50/30 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-emerald-800">
-            <span className="text-xs font-semibold uppercase tracking-wider">
+        {/* Card 2: Collected for Period (Payment-date based) */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-2xs font-bold uppercase tracking-wider text-emerald-800">
               Total Fee Collected
             </span>
-            <Receipt className="w-5 h-5 text-emerald-600" />
-          </div>
-          {loadingSummary ? (
-            <Skeleton className="h-8 w-1/2" />
-          ) : (
-            <div className="text-2xl font-extrabold font-mono text-emerald-700">
-              {formatCurrency(summary?.totalCollected || 0)}
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
+              <CreditCard className="w-4 h-4" />
             </div>
-          )}
-          <span className="text-2xs text-emerald-600 block">
-            Realized bank payments & receipts
-          </span>
+          </div>
+          <div className="text-2xl font-extrabold text-emerald-700 font-mono">
+            {formatCurrency(summary.collected_for_period)}
+          </div>
+          <p className="text-2xs text-emerald-700 flex items-center gap-1 font-medium">
+            <Receipt className="w-3 h-3 text-emerald-600" />
+            Realized payments realized in {period === 'this_month' ? 'current month' : 'all time'}
+          </p>
         </div>
 
-        {/* Total Outstanding */}
-        <div className="bg-white p-6 rounded-xl border border-rose-200 bg-rose-50/30 shadow-xs space-y-2">
-          <div className="flex items-center justify-between text-rose-800">
-            <span className="text-xs font-semibold uppercase tracking-wider">
-              Total Balance Outstanding
-            </span>
-            <AlertCircle className="w-5 h-5 text-rose-600" />
-          </div>
-          {loadingSummary ? (
-            <Skeleton className="h-8 w-1/2" />
-          ) : (
-            <div className="text-2xl font-extrabold font-mono text-rose-700">
-              {formatCurrency(summary?.totalOutstanding || 0)}
+        {/* Card 3: Outstanding Current (Always Live / Current) */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="text-2xs font-bold uppercase tracking-wider text-rose-800">
+                Total Balance Outstanding
+              </span>
+              <div
+                className="group relative cursor-help"
+                title="Always live across all active invoices in system. Independent of period filter."
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
+              </div>
             </div>
-          )}
-          <span className="text-2xs text-rose-600 block">
-            Net balance due across open terms
-          </span>
+            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-700 flex items-center justify-center">
+              <AlertCircle className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-rose-700 font-mono">
+            {formatCurrency(summary.outstanding_current)}
+          </div>
+          <p className="text-2xs text-gray-500 font-medium">
+            Always live/current across all active tax invoices
+          </p>
         </div>
       </div>
 
-      {/* 2. Pending vs Paid Status Breakdown Strip */}
+      {/* Invoice Status Distribution Strip (Always Live / Current) */}
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-        <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-navy-700" />
-          Invoice Settlement Status Breakdown
-        </h3>
-
-        {loadingStatus ? (
-          <div className="grid grid-cols-4 gap-4">
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
-              <span className="text-2xs font-semibold text-gray-500 uppercase block">Zero Payment</span>
-              <div className="text-xl font-bold font-mono text-gray-900 mt-1">
-                {statusCounts?.pending || 0}
-              </div>
-              <span className="text-2xs text-gray-400">Pending remittance</span>
-            </div>
-
-            <div className="p-4 rounded-lg bg-amber-50/70 border border-amber-200">
-              <span className="text-2xs font-semibold text-amber-800 uppercase block">Partially Paid</span>
-              <div className="text-xl font-bold font-mono text-amber-700 mt-1">
-                {statusCounts?.partial || 0}
-              </div>
-              <span className="text-2xs text-amber-700">Active installments</span>
-            </div>
-
-            <div className="p-4 rounded-lg bg-emerald-50/70 border border-emerald-200">
-              <span className="text-2xs font-semibold text-emerald-800 uppercase block">Fully Settled</span>
-              <div className="text-xl font-bold font-mono text-emerald-700 mt-1">
-                {statusCounts?.paid || 0}
-              </div>
-              <span className="text-2xs text-emerald-600">Zero balance due</span>
-            </div>
-
-            <div className="p-4 rounded-lg bg-rose-50/70 border border-rose-200">
-              <span className="text-2xs font-semibold text-rose-800 uppercase block">Overdue Invoices</span>
-              <div className="text-xl font-bold font-mono text-rose-700 mt-1">
-                {statusCounts?.overdue || 0}
-              </div>
-              <span className="text-2xs text-rose-600">Past due date</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3 & 4. Course Performance & Faculty Payroll Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Course-wise Fee Collection */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-navy-700" />
-              Course-wise Collection Breakdown
-            </h3>
-            <Link href="/reports" className="text-2xs font-semibold text-accent hover:underline">
-              View Report →
-            </Link>
-          </div>
-
-          {loadingCourses ? (
-            <Skeleton className="h-48 w-full" />
-          ) : courseBreakdown.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400">No course data available</div>
-          ) : (
-            <div className="space-y-4">
-              {courseBreakdown.map((c, i) => {
-                const pct = c.billed > 0 ? Math.min(100, Math.round((c.collected / c.billed) * 100)) : 0
-
-                return (
-                  <div key={i} className="space-y-1.5 text-xs">
-                    <div className="flex justify-between font-semibold text-gray-900">
-                      <span>{c.name}</span>
-                      <span className="font-mono text-emerald-700">{formatCurrency(c.collected)} / {formatCurrency(c.billed)}</span>
-                    </div>
-
-                    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-600 rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-
-                    <div className="flex justify-between text-2xs text-gray-400">
-                      <span>Collection Rate: {pct}%</span>
-                      <span className="text-rose-600 font-medium">Outstanding: {formatCurrency(c.outstanding)}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-navy-700" />
+            Live Invoice Status Counts
+          </h3>
+          <span className="text-2xs text-gray-400 font-mono">Real-time DB Counts</span>
         </div>
 
-        {/* Faculty Payroll Summary Card */}
-        <div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-3 rounded-lg bg-amber-50/70 border border-amber-200">
+            <span className="text-2xs font-semibold text-amber-800 block">Unpaid (Zero Payment)</span>
+            <span className="text-lg font-mono font-bold text-amber-900">{summary.zero_payment_count}</span>
+          </div>
 
-          {/* Faculty Payroll Summary Card */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-2xs font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                <Briefcase className="w-3.5 h-3.5 text-navy-700" /> Monthly Payroll Disbursed
-              </span>
-              {loadingPayroll ? (
-                <Skeleton className="h-6 w-32" />
-              ) : (
-                <div className="text-xl font-bold font-mono text-navy-950">
-                  {formatCurrency(payrollSummary?.totalNetDisbursed || 0)}
-                </div>
-              )}
-              <span className="text-2xs text-gray-500 block">
-                {payrollSummary?.countDisbursed || 0} Faculty Payslips Disbursed
-              </span>
-            </div>
+          <div className="p-3 rounded-lg bg-sky-50/70 border border-sky-200">
+            <span className="text-2xs font-semibold text-sky-800 block">Partial Payment</span>
+            <span className="text-lg font-mono font-bold text-sky-900">{summary.partial_count}</span>
+          </div>
 
-            <Link
-              href="/payslips"
-              className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-navy-800 bg-navy-50 hover:bg-navy-100 rounded-lg transition-colors"
-            >
-              Payroll →
-            </Link>
+          <div className="p-3 rounded-lg bg-emerald-50/70 border border-emerald-200">
+            <span className="text-2xs font-semibold text-emerald-800 block">Fully Paid</span>
+            <span className="text-lg font-mono font-bold text-emerald-900">{summary.paid_count}</span>
+          </div>
+
+          <div className="p-3 rounded-lg bg-rose-50/70 border border-rose-200">
+            <span className="text-2xs font-semibold text-rose-800 block">Overdue</span>
+            <span className="text-lg font-mono font-bold text-rose-900">{summary.overdue_count}</span>
           </div>
         </div>
       </div>
 
-      {/* 5. Recent Activity Feed (Payments & Invoices) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Payments Feed */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-emerald-600" />
-              Recent Payment Receipts Realized
-            </h3>
-            <Link href="/payments" className="text-2xs font-semibold text-emerald-700 hover:underline">
-              All Receipts →
-            </Link>
+      {/* Main Grid: Course Breakdown & Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Left Column (2 Cols): Course Breakdown & Payroll */}
+        <div className="lg:col-span-2 space-y-8">
+          {/* Course Program Fee Revenue Breakdown */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-navy-700" />
+                Course Program Fee Breakdown
+              </h3>
+              <span className="text-2xs text-gray-400">Authoritative RPC Data</span>
+            </div>
+
+            {summary.course_breakdown.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-4 text-center">
+                No course breakdown data recorded for this period.
+              </p>
+            ) : (
+              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold uppercase tracking-wider text-2xs">
+                    <tr>
+                      <th className="px-4 py-2.5">Academic Program Track</th>
+                      <th className="px-4 py-2.5 text-right">Total Billed</th>
+                      <th className="px-4 py-2.5 text-right">Collected</th>
+                      <th className="px-4 py-2.5 text-right">Outstanding</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {summary.course_breakdown.map((cb, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-900">{cb.course_name}</td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-gray-900">
+                          {formatCurrency(cb.billed_for_period)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-semibold text-emerald-700">
+                          {formatCurrency(cb.collected_for_period)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-rose-700">
+                          {formatCurrency(cb.outstanding_current)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
-          {loadingActivity ? (
-            <Skeleton className="h-48 w-full" />
-          ) : recentActivity?.payments.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400">No payment receipts recorded yet</div>
-          ) : (
-            <div className="space-y-3">
-              {recentActivity?.payments.map((p: any) => (
-                <div
-                  key={p.id}
-                  className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100/80 transition-colors text-xs"
-                >
-                  <div>
-                    <span className="font-mono font-bold text-navy-800 block">{p.receipt_no}</span>
-                    <span className="text-gray-600">{p.students?.name || 'Student'} • {p.payment_date}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-emerald-700 block">{formatCurrency(p.amount)}</span>
-                    <span className="text-2xs uppercase text-gray-400">{p.payment_mode ? p.payment_mode.replace('_', ' ') : 'BANK'}</span>
-                  </div>
-                </div>
-              ))}
+          {/* Current Month Faculty Payroll Card */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Banknote className="w-4 h-4 text-navy-700" />
+                Faculty Payroll Disbursements
+              </h3>
+              <span className="text-2xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                Current Month Total
+              </span>
             </div>
-          )}
+
+            <div className="p-4 rounded-xl bg-navy-900 text-white space-y-1">
+              <span className="text-2xs font-bold uppercase tracking-wider text-sky-400 block">
+                Total Net Salary Disbursed (Current Month)
+              </span>
+              <div className="text-2xl font-extrabold font-mono text-white">
+                {formatCurrency(summary.current_month_payroll)}
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Recent Invoices Feed */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-navy-700" />
-              Recent Tax Invoices Issued
-            </h3>
-            <Link href="/invoices" className="text-2xs font-semibold text-navy-700 hover:underline">
-              All Invoices →
-            </Link>
-          </div>
+        {/* Right Column (1 Col): Recent Invoices & Recent Payments */}
+        <div className="space-y-8">
+          {/* Recent Tax Invoices Feed */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <FileSpreadsheet className="w-4 h-4 text-navy-700" />
+                Recent Tax Invoices
+              </h3>
+              <Link href="/invoices" className="text-2xs font-semibold text-accent hover:underline flex items-center gap-1">
+                View All <ArrowRight className="w-3 h-3" />
+              </Link>
+            </div>
 
-          {loadingActivity ? (
-            <Skeleton className="h-48 w-full" />
-          ) : recentActivity?.invoices.length === 0 ? (
-            <div className="p-8 text-center text-xs text-gray-400">No invoices generated yet</div>
-          ) : (
-            <div className="space-y-3">
-              {recentActivity?.invoices.map((inv: any) => {
-                const compStatus = inv.invoice_balances?.computed_status || inv.status || 'draft'
-                return (
-                  <div
-                    key={inv.id}
-                    className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100/80 transition-colors text-xs"
-                  >
+            {summary.recent_invoices.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">No recent invoices found.</p>
+            ) : (
+              <div className="space-y-3">
+                {summary.recent_invoices.map((inv) => (
+                  <div key={inv.id} className="p-3 rounded-lg bg-gray-50/70 border border-gray-100 flex items-center justify-between text-xs">
                     <div>
-                      <Link href={`/invoices/${inv.id}`} className="font-mono font-bold text-navy-800 hover:underline block">
+                      <Link href={`/invoices/${inv.id}`} className="font-mono font-bold text-navy-900 hover:underline">
                         {inv.invoice_no}
                       </Link>
-                      <span className="text-gray-600">{inv.students?.name || 'Student'} • {inv.invoice_date}</span>
+                      <span className="text-2xs text-gray-500 block">{inv.student_name || 'Enrolled Student'}</span>
                     </div>
-                    <div className="text-right space-y-1">
+                    <div className="text-right">
                       <span className="font-mono font-bold text-gray-900 block">{formatCurrency(inv.grand_total)}</span>
-                      <StatusBadge status={compStatus as StatusType} />
+                      <span className="text-2xs text-gray-400">{inv.invoice_date}</span>
                     </div>
                   </div>
-                )
-              })}
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Recent Payment Receipts Feed */}
+          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-emerald-700" />
+                Recent Payment Receipts
+              </h3>
+              <Link href="/payments" className="text-2xs font-semibold text-emerald-700 hover:underline flex items-center gap-1">
+                View All <ArrowRight className="w-3 h-3" />
+              </Link>
             </div>
-          )}
+
+            {summary.recent_payments.length === 0 ? (
+              <p className="text-xs text-gray-400 italic py-2">No recent payment receipts found.</p>
+            ) : (
+              <div className="space-y-3">
+                {summary.recent_payments.map((p) => (
+                  <div key={p.id} className="p-3 rounded-lg bg-emerald-50/40 border border-emerald-100 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-mono font-bold text-emerald-900 block">{p.receipt_no}</span>
+                      <span className="text-2xs text-gray-500">{p.student_name || 'Enrolled Student'}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono font-bold text-emerald-700 block">{formatCurrency(p.amount)}</span>
+                      <span className="text-2xs text-gray-400 font-mono">{p.payment_date}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

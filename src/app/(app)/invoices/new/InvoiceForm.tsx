@@ -1,16 +1,20 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { generateInvoiceNumber } from '@/lib/numbering/generate-number'
-import { getFinancialYearLabel } from '@/lib/numbering/financial-year'
+import { createInvoice } from '@/lib/rpc/financial'
+import { invalidateAfterInvoiceCreated } from '@/lib/rpc/invalidation'
+import { generateIdempotencyKey } from '@/lib/utils/idempotency'
+import { queryKeys } from '@/lib/query-keys'
 import { calculateInvoiceTotals } from '@/lib/invoices/calculations'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { ErrorBanner } from '@/components/ui/ErrorBanner'
+import { SearchableStudentSelect } from '@/components/ui/SearchableStudentSelect'
 import {
   FileSpreadsheet,
   Plus,
@@ -32,7 +36,6 @@ import type {
   CourseTerm,
   FeeHead,
   Invoice,
-  InvoiceItem,
   InvoiceStatus,
 } from '@/types/database'
 
@@ -64,6 +67,12 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
   const { success, error: toastError } = useToast()
 
   const isEditing = !!initialInvoice
+
+  // Error Banner state for verbatim RPC errors
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Idempotency Key Ref: generated once on initial submit attempt and preserved for retries
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   // Form State
   const [studentId, setStudentId] = useState<string>(initialInvoice?.student_id || '')
@@ -114,9 +123,9 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
       '1. Payment must reference the tax invoice number.\n2. Invoices overdue beyond 15 days may incur late fee adjustments.'
   )
 
-  // 1. Fetch active students
+  // 1. Fetch active students via QueryKey registry
   const { data: studentsList, isLoading: loadingStudents } = useQuery({
-    queryKey: ['students-for-invoice'],
+    queryKey: queryKeys.students.forInvoice,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
@@ -127,9 +136,9 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     },
   })
 
-  // 2. Fetch student's enrollments when a student is selected
-  const { data: studentEnrollments } = useQuery({
-    queryKey: ['student-enrollments-for-invoice', studentId],
+  // 2. Fetch student's enrollments with course terms and fee heads when student is selected
+  const { data: studentEnrollments, isLoading: loadingEnrollments } = useQuery({
+    queryKey: queryKeys.students.enrollments(studentId),
     enabled: !!studentId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -171,9 +180,10 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     },
   })
 
-  // 3. Auto-query previous outstanding balance for this student across other active invoices
+  // 3. Query previous outstanding balance for instant preview in the summary panel
+  // (Note: create_invoice RPC computes authoritative previous_outstanding in DB)
   const { data: previousOutstanding = 0 } = useQuery({
-    queryKey: ['student-previous-outstanding', studentId, initialInvoice?.id],
+    queryKey: queryKeys.invoices.studentOutstanding(studentId, initialInvoice?.id),
     enabled: !!studentId,
     queryFn: async () => {
       const { data: priorInvoices, error: invErr } = await supabase
@@ -181,6 +191,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
         .select('id')
         .eq('student_id', studentId)
         .neq('status', 'cancelled')
+        .neq('status', 'draft')
 
       if (invErr) throw invErr
       if (!priorInvoices || priorInvoices.length === 0) return 0
@@ -207,30 +218,31 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     },
   })
 
-  // Selected enrollment and course term structures
+  // Selected enrollment and available course terms
   const selectedEnrollment = studentEnrollments?.find((e) => e.id === enrollmentId)
   const availableTerms = selectedEnrollment?.courses?.course_terms || []
 
-  // When a course term is selected, pre-fill line items
-  const handleTermSelection = (termId: string) => {
+  // When a course term is selected, pre-fill line items from fee heads or term fee
+  const handleTermSelection = (termId: string, currentEnrollmentList?: typeof studentEnrollments) => {
     setCourseTermId(termId)
-    const currentEnr = studentEnrollments?.find((e) => e.id === (enrollmentId || studentEnrollments[0]?.id))
+    const enrList = currentEnrollmentList || studentEnrollments
+    const currentEnr = enrList?.find((e) => e.id === (enrollmentId || enrList[0]?.id))
     const terms = currentEnr?.courses?.course_terms || availableTerms
     const selectedTerm = terms.find((t) => t.id === termId)
     if (!selectedTerm) return
 
-    const courseName = currentEnr?.courses?.name || 'Program'
+    const courseName = currentEnr?.courses?.name || 'Academic Program'
 
     if (selectedTerm.fee_heads && selectedTerm.fee_heads.length > 0) {
-      // Use fee heads breakdown
+      // Use itemized fee heads breakdown
       const newItems = selectedTerm.fee_heads.map((fh: any) => ({
-        description: `${courseName} - ${selectedTerm.term_label}: ${fh.label || fh.name || 'Fee Head'}`,
+        description: `${courseName} - ${selectedTerm.term_label}: ${fh.label || fh.name || 'Tuition Component'}`,
         quantity: 1,
         unit_price: Number(fh.amount) || 0,
       }))
       setItems(newItems)
     } else {
-      // Fallback to single term fee row
+      // Fallback to single term fee
       setItems([
         {
           description: `${courseName} - ${selectedTerm.term_label} Tuition Fee`,
@@ -241,7 +253,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     }
   }
 
-  // Auto-populate enrollment and term structure upon student selection if empty
+  // Auto-populate enrollment and term structure upon student selection
   useEffect(() => {
     if (studentEnrollments && studentEnrollments.length > 0 && !isEditing) {
       const targetEnr = enrollmentId
@@ -255,12 +267,12 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
       const terms = targetEnr.courses?.course_terms || []
       if (terms.length > 0 && !courseTermId) {
         const targetTerm = terms.find((t) => t.term_no === targetEnr.current_term) || terms[0]
-        handleTermSelection(targetTerm.id)
+        handleTermSelection(targetTerm.id, studentEnrollments)
       }
     }
   }, [studentEnrollments])
 
-  // Live real-time calculations
+  // Live real-time preview calculations for instant UI feedback
   const totals = calculateInvoiceTotals(
     items,
     previousOutstanding,
@@ -293,131 +305,73 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     )
   }
 
-  // Save Mutation (Authoritative Server-Side Calculation)
+  // Save Mutation (Authoritative create_invoice RPC Execution)
   const saveInvoiceMutation = useMutation({
     mutationFn: async (status: InvoiceStatus) => {
+      setFormError(null)
+
       if (!studentId) {
-        throw new Error('Please select a student')
+        throw new Error('Please select an enrolled student')
       }
       if (!dueDate) {
         throw new Error('Please select an invoice payment due date')
       }
-      if (items.some((it) => !it.description.trim())) {
-        throw new Error('All fee line items must have a description')
+      if (items.length === 0 || items.some((it) => !it.description.trim())) {
+        throw new Error('All fee line items must have a valid description')
+      }
+      if (items.some((it) => (Number(it.quantity) || 0) <= 0)) {
+        throw new Error('Line item quantity must be greater than zero')
+      }
+      if (items.some((it) => (Number(it.unit_price) || 0) < 0)) {
+        throw new Error('Line item unit price cannot be negative')
       }
 
-      // 1. Authoritative recalculation
-      const serverCalculated = calculateInvoiceTotals(
-        items,
-        previousOutstanding,
-        discountAmount,
-        scholarshipAmount,
-        couponAmount,
-        gstPercent
-      )
-
-      const fyLabel = getFinancialYearLabel(new Date(invoiceDate))
-      let invoiceId = initialInvoice?.id
-      let invoiceNo = initialInvoice?.invoice_no
-
-      if (!isEditing) {
-        // 2. Generate sequential invoice number via Phase 4 atomic engine
-        invoiceNo = await generateInvoiceNumber(new Date(invoiceDate), supabase)
-
-        const { data: newInvoice, error: insertError } = await supabase
-          .from('invoices')
-          .insert({
-            invoice_no: invoiceNo,
-            fy_label: fyLabel,
-            student_id: studentId,
-            enrollment_id: enrollmentId || null,
-            course_term_id: courseTermId || null,
-            quotation_id: quotationId || null,
-            invoice_date: invoiceDate,
-            due_date: dueDate,
-            previous_outstanding: serverCalculated.previousOutstanding,
-            subtotal: serverCalculated.subtotal,
-            discount_amount: serverCalculated.discountAmount,
-            scholarship_amount: serverCalculated.scholarshipAmount,
-            coupon_amount: serverCalculated.couponAmount,
-            gst_percent: serverCalculated.gstPercent,
-            gst_amount: serverCalculated.gstAmount,
-            grand_total: serverCalculated.grandTotal,
-            status,
-            notes: notes.trim() || null,
-          })
-          .select('id, invoice_no')
-          .single()
-
-        if (insertError) throw insertError
-        invoiceId = newInvoice.id
-
-        // If converted from a quotation, mark quotation as converted
-        if (quotationId) {
-          await supabase
-            .from('quotations')
-            .update({ status: 'converted' })
-            .eq('id', quotationId)
-        }
-      } else {
-        // Update existing invoice
-        const { error: updateError } = await supabase
-          .from('invoices')
-          .update({
-            student_id: studentId,
-            enrollment_id: enrollmentId || null,
-            course_term_id: courseTermId || null,
-            invoice_date: invoiceDate,
-            due_date: dueDate,
-            previous_outstanding: serverCalculated.previousOutstanding,
-            subtotal: serverCalculated.subtotal,
-            discount_amount: serverCalculated.discountAmount,
-            scholarship_amount: serverCalculated.scholarshipAmount,
-            coupon_amount: serverCalculated.couponAmount,
-            gst_percent: serverCalculated.gstPercent,
-            gst_amount: serverCalculated.gstAmount,
-            grand_total: serverCalculated.grandTotal,
-            status: initialInvoice.status === 'draft' ? status : initialInvoice.status,
-            notes: notes.trim() || null,
-          })
-          .eq('id', invoiceId)
-
-        if (updateError) throw updateError
-
-        // Delete old items before re-inserting
-        await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
+      // Generate idempotency key on first submission attempt if not already set
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = generateIdempotencyKey()
       }
 
-      // 3. Insert line items
-      const lineItemInserts = serverCalculated.recalculatedItems.map((it) => ({
-        invoice_id: invoiceId,
-        description: it.description.trim(),
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-        line_total: it.line_total,
-      }))
+      // Call authoritative create_invoice database RPC wrapper
+      const result = await createInvoice({
+        studentId,
+        enrollmentId: enrollmentId || null,
+        courseTermId: courseTermId || null,
+        quotationId: quotationId || null,
+        invoiceDate,
+        dueDate,
+        items: items.map((it) => ({
+          description: it.description.trim(),
+          quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.unit_price) || 0,
+        })),
+        discountAmount: Number(discountAmount) || 0,
+        scholarshipAmount: Number(scholarshipAmount) || 0,
+        couponAmount: Number(couponAmount) || 0,
+        gstPercent: Number(gstPercent) ?? 18,
+        notes: notes.trim() || null,
+        saveAsDraft: status === 'draft',
+        idempotencyKey: idempotencyKeyRef.current,
+      })
 
-      const { error: itemsError } = await supabase
-        .from('invoice_items')
-        .insert(lineItemInserts)
-
-      if (itemsError) throw itemsError
-
-      return { id: invoiceId, invoiceNo }
+      return result
     },
     onError: (err: Error) => {
-      toastError('Failed to save invoice', err.message)
+      setFormError(err.message)
+      toastError('Invoice creation failed', err.message)
     },
-    onSuccess: (data) => {
+    onSuccess: async (result) => {
+      idempotencyKeyRef.current = null
       success(
-        isEditing
-          ? `Invoice ${data.invoiceNo} updated successfully`
-          : `Invoice ${data.invoiceNo} generated successfully`
+        result.status === 'draft'
+          ? `Draft invoice ${result.invoice_no} created successfully`
+          : `Invoice ${result.invoice_no} issued successfully`
       )
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      queryClient.invalidateQueries({ queryKey: ['invoice', data.id] })
-      queryClient.invalidateQueries({ queryKey: ['quotations'] })
-      router.push(`/invoices/${data.id}`)
+
+      // Invalidate targeted queries using Phase A invalidation helper
+      await invalidateAfterInvoiceCreated(queryClient, { studentId })
+
+      // Redirect directly to the newly created invoice's detail view
+      router.push(`/invoices/${result.invoice_id}`)
     },
   })
 
@@ -483,6 +437,15 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
         </div>
       </div>
 
+      {/* Error Banner for Unmasked Database Exceptions */}
+      {formError && (
+        <ErrorBanner
+          error={formError}
+          title="Unable to Create Invoice"
+          onDismiss={() => setFormError(null)}
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Form (Left 2 Columns) */}
         <div className="lg:col-span-2 space-y-6">
@@ -498,22 +461,16 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Select Enrolled Student *
                 </label>
-                <select
+                <SearchableStudentSelect
+                  students={studentsList || []}
                   value={studentId}
-                  onChange={(e) => {
-                    setStudentId(e.target.value)
+                  onChange={(id) => {
+                    setStudentId(id)
                     setEnrollmentId('')
                     setCourseTermId('')
                   }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                >
-                  <option value="">-- Choose a student --</option>
-                  {studentsList?.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.admission_no}) — {s.phone}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="-- Choose a student --"
+                />
               </div>
 
               <div>
@@ -521,15 +478,30 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   Select Course Enrollment Track
                 </label>
                 <select
-                  disabled={!studentId || !studentEnrollments || studentEnrollments.length === 0}
+                  disabled={!studentId || loadingEnrollments || !studentEnrollments || studentEnrollments.length === 0}
                   value={enrollmentId}
                   onChange={(e) => {
-                    setEnrollmentId(e.target.value)
+                    const newEnrId = e.target.value
+                    setEnrollmentId(newEnrId)
                     setCourseTermId('')
+                    const foundEnr = studentEnrollments?.find((en) => en.id === newEnrId)
+                    const terms = foundEnr?.courses?.course_terms || []
+                    if (terms.length > 0) {
+                      const matchedTerm = terms.find((t) => t.term_no === foundEnr?.current_term) || terms[0]
+                      handleTermSelection(matchedTerm.id)
+                    }
                   }}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent disabled:bg-gray-100"
                 >
-                  <option value="">-- Choose academic program --</option>
+                  <option value="">
+                    {loadingEnrollments
+                      ? 'Loading academic programs...'
+                      : !studentId
+                      ? '-- Select a student first --'
+                      : studentEnrollments && studentEnrollments.length > 0
+                      ? '-- Choose academic program --'
+                      : 'No enrollments found for student'}
+                  </option>
                   {studentEnrollments?.map((enr) => (
                     <option key={enr.id} value={enr.id}>
                       {enr.courses?.name} (Batch {enr.batch_year} - Term {enr.current_term})
@@ -548,7 +520,9 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   onChange={(e) => handleTermSelection(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent disabled:bg-gray-100"
                 >
-                  <option value="">-- Select term to bill --</option>
+                  <option value="">
+                    {!enrollmentId ? '-- Select program first --' : '-- Select term to bill --'}
+                  </option>
                   {availableTerms.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.term_label} ({formatCurrency(t.term_fee)})
@@ -559,11 +533,11 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Previous Outstanding (Auto-pulled)
+                  Previous Outstanding (Authoritative Ledger)
                 </label>
                 <div className="w-full rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm font-mono font-bold text-amber-900 flex items-center justify-between">
                   <span>{formatCurrency(previousOutstanding)}</span>
-                  <span className="text-2xs font-normal text-amber-700">From Ledger</span>
+                  <span className="text-2xs font-normal text-amber-700">Calculated in DB</span>
                 </div>
               </div>
             </div>
@@ -622,11 +596,6 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
 
             <div className="space-y-3">
               {items.map((item, index) => {
-                const lineTotal = Math.max(
-                  0,
-                  (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
-                )
-
                 return (
                   <div
                     key={index}
@@ -675,7 +644,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                         <input
                           type="number"
                           min={0}
-                          step={100}
+                          step={1}
                           required
                           value={item.unit_price}
                           onChange={(e) =>
@@ -721,7 +690,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
           </div>
         </div>
 
-        {/* Right Sidebar: Live Real-Time Calculated Summary */}
+        {/* Right Sidebar: Live Calculated Summary Panel */}
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-6 sticky top-24">
             <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
@@ -753,7 +722,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   <input
                     type="number"
                     min={0}
-                    step={100}
+                    step={1}
                     value={discountAmount}
                     onChange={(e) =>
                       setDiscountAmount(Math.max(0, parseFloat(e.target.value) || 0))
@@ -769,7 +738,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   <input
                     type="number"
                     min={0}
-                    step={100}
+                    step={1}
                     value={scholarshipAmount}
                     onChange={(e) =>
                       setScholarshipAmount(Math.max(0, parseFloat(e.target.value) || 0))
@@ -785,7 +754,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   <input
                     type="number"
                     min={0}
-                    step={100}
+                    step={1}
                     value={couponAmount}
                     onChange={(e) =>
                       setCouponAmount(Math.max(0, parseFloat(e.target.value) || 0))

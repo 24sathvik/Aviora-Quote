@@ -1,15 +1,20 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
-import { generatePayslipNumber } from '@/lib/numbering/generate-number'
+import { generatePayslip } from '@/lib/rpc/financial'
+import { invalidateAfterPayslipGenerated } from '@/lib/rpc/invalidation'
+import { generateIdempotencyKey } from '@/lib/utils/idempotency'
+import { queryKeys } from '@/lib/query-keys'
 import { calculatePayrollTotals } from '@/lib/payroll/calculations'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { ErrorBanner } from '@/components/ui/ErrorBanner'
+import { SearchableFacultySelect } from '@/components/ui/SearchableFacultySelect'
 import {
   FileText,
   ArrowLeft,
@@ -50,14 +55,20 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
 
+  // Error Banner state for unmasked database exception strings
+  const [formError, setFormError] = useState<string | null>(null)
+
+  // Idempotency Key Ref generated once per submission attempt
+  const idempotencyKeyRef = useRef<string | null>(null)
+
   const today = new Date()
   const [facultyId, setFacultyId] = useState<string>(prefillFacultyId || '')
   const [month, setMonth] = useState<number>(today.getMonth() + 1)
   const [year, setYear] = useState<number>(today.getFullYear())
 
-  // 1. Fetch active faculty directory
+  // 1. Fetch active faculty directory via queryKeys registry
   const { data: facultyList, isLoading: loadingFaculty } = useQuery({
-    queryKey: ['faculty-for-payslip'],
+    queryKey: queryKeys.faculty.forPayslip,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('faculty')
@@ -73,30 +84,30 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
   const lastDay = new Date(year, month, 0).getDate()
   const monthEndDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
 
-  // 2. Fetch the effective salary structure for this faculty member as of selected month
+  // 2. Fetch effective salary structure for live preview
   const { data: effectiveStructure, isLoading: loadingStructure } = useQuery({
-    queryKey: ['effective-salary-structure', facultyId, monthEndDate],
+    queryKey: queryKeys.faculty.effectiveStructure(facultyId, monthEndDate),
     enabled: !!facultyId,
     queryFn: async () => {
-      // 1st try: effective_from <= monthEndDate
       const { data, error } = await supabase
         .from('faculty_salary_structures')
         .select('*')
         .eq('faculty_id', facultyId)
         .lte('effective_from', monthEndDate)
         .order('effective_from', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
       if (error) throw error
       if (data) return data as FacultySalaryStructure
 
-      // Fallback: latest structure overall for this faculty member
       const { data: latestData } = await supabase
         .from('faculty_salary_structures')
         .select('*')
         .eq('faculty_id', facultyId)
         .order('effective_from', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle()
 
@@ -104,9 +115,9 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
     },
   })
 
-  // 3. Check if a payslip for this (faculty_id, month, year) already exists
+  // 3. Check for existing duplicate payslip in UI preview
   const { data: existingPayslip } = useQuery({
-    queryKey: ['check-duplicate-payslip', facultyId, month, year],
+    queryKey: queryKeys.payslips.duplicateCheck(facultyId, month, year),
     enabled: !!facultyId,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -122,58 +133,43 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
     },
   })
 
-  // Compute live payroll totals using calculations engine
+  // Compute live payroll totals for instant client feedback preview
   const totals = calculatePayrollTotals(effectiveStructure)
   const isDuplicate = !!existingPayslip
 
-  // Generate Payslip Mutation
+  // Generate Payslip Mutation (Authoritative DB RPC generate_payslip execution)
   const generatePayslipMutation = useMutation({
     mutationFn: async () => {
+      setFormError(null)
+
       if (!facultyId) throw new Error('Please select a faculty member')
-      if (isDuplicate) {
-        const monthName = MONTHS.find((m) => m.value === month)?.name || month
-        throw new Error(`A payslip for this faculty member for ${monthName} ${year} has already been generated. Duplicate payslips are blocked.`)
-      }
-      if (!effectiveStructure) {
-        throw new Error('No effective salary structure found for this faculty member. Please configure salary structure first.')
+      if (!month || !year) throw new Error('Please select a valid payroll period')
+
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = generateIdempotencyKey()
       }
 
-      const payDate = new Date(year, month - 1, 1)
-      const payslipNo = await generatePayslipNumber(payDate, supabase)
+      // Call Phase A RPC wrapper for generate_payslip
+      const result = await generatePayslip({
+        facultyId,
+        month,
+        year,
+        idempotencyKey: idempotencyKeyRef.current,
+      })
 
-      const { data: newPayslip, error } = await supabase
-        .from('payslips')
-        .insert({
-          payslip_no: payslipNo,
-          faculty_id: facultyId,
-          month,
-          year,
-          gross_pay: totals.grossPay,
-          total_deductions: totals.totalDeductions,
-          net_pay: totals.netPay,
-          salary_structure_snapshot: totals.snapshot,
-        })
-        .select('id, payslip_no')
-        .single()
-
-      if (error) {
-        if (error.code === '23505') {
-          const monthName = MONTHS.find((m) => m.value === month)?.name || month
-          throw new Error(`A payslip for this faculty member for ${monthName} ${year} has already been generated. Duplicate payslips are blocked.`)
-        }
-        throw error
-      }
-      return newPayslip
+      return result
     },
     onError: (err: Error) => {
-      toastError('Failed to generate payslip', err.message)
+      setFormError(err.message)
+      toastError('Payslip generation failed', err.message)
     },
-    onSuccess: (newPayslip) => {
-      success(`Payslip ${newPayslip.payslip_no} generated successfully`)
-      queryClient.invalidateQueries({ queryKey: ['payslips'] })
-      queryClient.invalidateQueries({ queryKey: ['faculty-payslips', facultyId] })
-      queryClient.invalidateQueries({ queryKey: ['faculty-payslip-history', facultyId] })
-      queryClient.invalidateQueries({ queryKey: ['dashboard-payroll-summary'] })
+    onSuccess: async (result) => {
+      idempotencyKeyRef.current = null
+      success(`Payslip ${result.payslip_no} generated successfully`)
+
+      // Invalidate targeted queries using Phase A invalidation helper
+      await invalidateAfterPayslipGenerated(queryClient, { facultyId })
+
       router.push(`/faculty/${facultyId}`)
     },
   })
@@ -209,6 +205,15 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
         </div>
       </div>
 
+      {/* Error Banner for Unmasked Database Exception Strings */}
+      {formError && (
+        <ErrorBanner
+          error={formError}
+          title="Payroll Exception"
+          onDismiss={() => setFormError(null)}
+        />
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Form (Left 2 Columns) */}
         <div className="lg:col-span-2 space-y-6">
@@ -224,19 +229,12 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Select Faculty Member *
                 </label>
-                <select
-                  required
+                <SearchableFacultySelect
+                  faculty={facultyList || []}
                   value={facultyId}
-                  onChange={(e) => setFacultyId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                >
-                  <option value="">-- Choose faculty --</option>
-                  {facultyList?.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name} ({f.designation || 'Faculty'})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(id) => setFacultyId(id)}
+                  placeholder="-- Choose faculty --"
+                />
               </div>
 
               <div>
@@ -281,7 +279,7 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
                 <div>
                   <strong className="block font-bold">Payslip Already Generated</strong>
                   <span>
-                    A payslip (<code className="font-mono font-bold">{existingPayslip.payslip_no}</code>) has already been generated for this faculty member for {MONTHS.find((m) => m.value === month)?.name} {year}. Duplicate payslips are blocked to maintain payroll integrity.
+                    A payslip (<code className="font-mono font-bold">{existingPayslip.payslip_no}</code>) has already been generated for this faculty member for {MONTHS.find((m) => m.value === month)?.name} {year}. Database RPC will reject duplicates.
                   </span>
                 </div>
               </div>
@@ -293,7 +291,7 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
                 <div>
                   <strong className="block font-bold">No Effective Salary Structure Found</strong>
                   <span>
-                    No salary structure configured for this faculty member effective on or before {monthEndDate}. Please configure a salary structure on the faculty profile first.
+                    No salary structure configured for this faculty member effective on or before {monthEndDate}. Database RPC requires an active salary structure.
                   </span>
                 </div>
               </div>
@@ -403,7 +401,7 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
                   {formatCurrency(totals.netPay)}
                 </div>
                 <span className="text-2xs text-gray-300 block">
-                  Frozen copy will be stored in payslip snapshot
+                  Frozen snapshot copy generated authoritatively by DB RPC
                 </span>
               </div>
             </div>
@@ -414,8 +412,7 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
               disabled={
                 generatePayslipMutation.isPending ||
                 !facultyId ||
-                !effectiveStructure ||
-                isDuplicate
+                !effectiveStructure
               }
               className="w-full py-2.5 px-4 text-xs font-bold uppercase tracking-wider text-white bg-navy-800 hover:bg-navy-900 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
             >

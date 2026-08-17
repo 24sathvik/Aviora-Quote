@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -38,7 +39,7 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
 
   // Fetch student's enrollments with joined course details
   const { data: enrollments, isLoading: isLoadingEnrollments } = useQuery({
-    queryKey: ['student-enrollments', studentId],
+    queryKey: queryKeys.students.enrollments(studentId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('enrollments')
@@ -93,7 +94,7 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
 
   // Fetch available courses for enrollment dropdown
   const { data: allCourses } = useQuery({
-    queryKey: ['courses-for-enrollment'],
+    queryKey: queryKeys.courses.forEnrollment,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('courses')
@@ -151,19 +152,19 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
       }
     },
     onMutate: async (newEnr) => {
-      await queryClient.cancelQueries({ queryKey: ['student-enrollments', studentId] })
-      const prev = queryClient.getQueryData(['student-enrollments', studentId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.students.enrollments(studentId) })
+      const prev = queryClient.getQueryData(queryKeys.students.enrollments(studentId))
 
       // Optimistic update
       if (prev && newEnr.id) {
-        queryClient.setQueryData<Enrollment[]>(['student-enrollments', studentId], (old) =>
+        queryClient.setQueryData<Enrollment[]>(queryKeys.students.enrollments(studentId), (old) =>
           (old || []).map((e) => (e.id === newEnr.id ? ({ ...e, ...newEnr } as Enrollment) : e))
         )
       }
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['student-enrollments', studentId], context?.prev)
+      queryClient.setQueryData(queryKeys.students.enrollments(studentId), context?.prev)
       toastError('Failed to save enrollment', err.message)
     },
     onSuccess: () => {
@@ -172,8 +173,8 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
       setEditingEnrollment(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
-      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.enrollments(studentId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all })
     },
   })
 
@@ -184,17 +185,17 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
       if (error) throw error
     },
     onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['student-enrollments', studentId] })
-      const prev = queryClient.getQueryData(['student-enrollments', studentId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.students.enrollments(studentId) })
+      const prev = queryClient.getQueryData(queryKeys.students.enrollments(studentId))
       if (prev) {
-        queryClient.setQueryData<Enrollment[]>(['student-enrollments', studentId], (old) =>
+        queryClient.setQueryData<Enrollment[]>(queryKeys.students.enrollments(studentId), (old) =>
           (old || []).filter((e) => e.id !== id)
         )
       }
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['student-enrollments', studentId], context?.prev)
+      queryClient.setQueryData(queryKeys.students.enrollments(studentId), context?.prev)
       toastError('Failed to delete enrollment', err.message)
     },
     onSuccess: () => {
@@ -202,8 +203,8 @@ export function EnrollmentsSection({ studentId }: EnrollmentsSectionProps) {
       setDeletingEnrollment(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['student-enrollments', studentId] })
-      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.enrollments(studentId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all })
     },
   })
 

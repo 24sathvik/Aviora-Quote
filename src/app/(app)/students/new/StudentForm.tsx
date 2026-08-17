@@ -6,7 +6,9 @@ import Link from 'next/link'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { useToast } from '@/components/ui/Toast'
 import {
   ArrowLeft,
@@ -33,20 +35,14 @@ const studentSchema = z.object({
 
 type StudentFormValues = z.infer<typeof studentSchema>
 
-function getStoragePhotoPath(fileName: string) {
-  const ext = fileName.split('.').pop() || 'jpg'
-  const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'p_' + Math.floor(Math.random() * 1000000)
-  return `student-${uniqueId}.${ext}`
-}
-
 export function StudentForm() {
   const router = useRouter()
   const supabase = createClient()
+  const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
 
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
 
   const form = useForm<StudentFormValues>({
@@ -78,31 +74,12 @@ export function StudentForm() {
     setPhotoPreview(null)
   }
 
-  const onSubmit = async (values: StudentFormValues) => {
-    try {
-      setIsSubmitting(true)
+  // React Query Mutation for Student Creation
+  const createStudentMutation = useMutation({
+    mutationFn: async (values: StudentFormValues) => {
       setServerError(null)
 
-      let photo_url: string | null = null
-
-      // Upload photo if selected
-      if (photoFile) {
-        const path = getStoragePhotoPath(photoFile.name)
-        const { error: uploadError } = await supabase.storage
-          .from('student-photos')
-          .upload(path, photoFile)
-
-        if (uploadError) {
-          throw new Error('Photo upload failed: ' + uploadError.message)
-        }
-
-        const { data: urlData } = supabase.storage
-          .from('student-photos')
-          .getPublicUrl(path)
-        photo_url = urlData.publicUrl
-      }
-
-      // Insert student record
+      // 1. Insert student record first to get student ID
       const { data: insertedStudent, error: insertError } = await supabase
         .from('students')
         .insert({
@@ -115,26 +92,59 @@ export function StudentForm() {
           guardian_phone: values.guardian_phone ? values.guardian_phone.trim() : null,
           address: values.address ? values.address.trim() : null,
           status: values.status,
-          photo_url,
+          photo_url: null,
         })
         .select('id, admission_no')
         .single()
 
       if (insertError) throw insertError
 
+      let photo_url: string | null = null
+
+      // 2. Upload photo if selected to exact deterministic path: students/{student_id}/profile.webp
+      if (photoFile) {
+        const deterministicPath = `students/${insertedStudent.id}/profile.webp`
+
+        // Upload with upsert: true first (so previous valid image is not destroyed if upload fails)
+        const { error: uploadError } = await supabase.storage
+          .from('student-photos')
+          .upload(deterministicPath, photoFile, { upsert: true, contentType: 'image/webp' })
+
+        if (uploadError) {
+          throw new Error('Photo upload failed: ' + uploadError.message)
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('student-photos')
+          .getPublicUrl(deterministicPath)
+        photo_url = urlData.publicUrl
+
+        // Update photo_url on student record
+        await supabase
+          .from('students')
+          .update({ photo_url })
+          .eq('id', insertedStudent.id)
+      }
+
+      return insertedStudent
+    },
+    onError: (err: Error) => {
+      setServerError(err.message)
+      toastError('Error creating student', err.message)
+    },
+    onSuccess: (insertedStudent) => {
+      // Invalidate student list cache with refetchType: 'all' so both active and inactive list queries refresh
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all, refetchType: 'all' })
       success(
         'Student Created',
         `Student admission profile generated (${insertedStudent.admission_no})`
       )
-
       router.push(`/students/${insertedStudent.id}`)
-      router.refresh()
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to save student record'
-      setServerError(errorMsg)
-      toastError('Error creating student', errorMsg)
-      setIsSubmitting(false)
-    }
+    },
+  })
+
+  const onSubmit = (values: StudentFormValues) => {
+    createStudentMutation.mutate(values)
   }
 
   return (
@@ -269,6 +279,17 @@ export function StudentForm() {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700">
+                  Admission Date *
+                </label>
+                <input
+                  type="date"
+                  {...form.register('admission_date')}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700">
                   Date of Birth
                 </label>
                 <input
@@ -277,119 +298,81 @@ export function StudentForm() {
                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
                 />
               </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">
-                  Admission Date *
-                </label>
-                <input
-                  type="date"
-                  {...form.register('admission_date')}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                />
-                {form.formState.errors.admission_date && (
-                  <p className="text-rose-500 text-xs mt-1">
-                    {form.formState.errors.admission_date.message}
-                  </p>
-                )}
-              </div>
             </div>
           </div>
 
-          {/* Admission Status & Guardian Information */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                <Shield className="w-4 h-4 text-navy-700" />
-                Admission Status
-              </h3>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">
-                  Status in Lifecycle
-                </label>
-                <select
-                  {...form.register('status')}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                >
-                  <option value="enquiry">Enquiry (Prospective student)</option>
-                  <option value="enrolled">Enrolled (Confirmed admission)</option>
-                  <option value="active">Active (Currently attending)</option>
-                  <option value="completed">Completed (Graduated)</option>
-                  <option value="dropped">Dropped (Withdrawn)</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Default status is Enquiry. Can be updated anytime later.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">
-                  Residential Address
-                </label>
-                <div className="relative mt-1">
-                  <textarea
-                    rows={3}
-                    placeholder="Full residential street, city, pin code..."
-                    {...form.register('address')}
-                    className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                  />
-                </div>
-              </div>
+          {/* Guardian & Additional Particulars Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-6 border-b border-gray-100">
+            <div>
+              <label className="block text-xs font-medium text-gray-700">
+                Guardian / Parent Name
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Ramesh Sharma"
+                {...form.register('guardian_name')}
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+              />
             </div>
 
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                <User className="w-4 h-4 text-navy-700" />
-                Parent / Guardian Details
-              </h3>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">
-                  Guardian / Parent Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Ramesh Sharma"
-                  {...form.register('guardian_name')}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-gray-700">
-                  Guardian Contact Number
-                </label>
-                <div className="relative mt-1">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="tel"
-                    placeholder="+91 98765 00000"
-                    {...form.register('guardian_phone')}
-                    className="block w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300 shadow-xs focus:ring-accent focus:border-accent"
-                  />
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700">
+                Guardian Contact Phone
+              </label>
+              <input
+                type="tel"
+                placeholder="+91 98765 43211"
+                {...form.register('guardian_phone')}
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+              />
             </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-gray-700">
+                Residential Address
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Full permanent / mailing address..."
+                {...form.register('address')}
+                className="mt-1 block w-full rounded-lg border border-gray-300 p-3 text-xs shadow-xs focus:ring-accent focus:border-accent"
+              />
+            </div>
+          </div>
+
+          {/* Admission Status Selector */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Admission Status *
+            </label>
+            <select
+              {...form.register('status')}
+              className="w-full sm:w-1/2 rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+            >
+              <option value="enquiry">Enquiry / Prospect</option>
+              <option value="enrolled">Enrolled</option>
+              <option value="active">Active Academic</option>
+              <option value="completed">Course Completed</option>
+              <option value="dropped">Discontinued</option>
+            </select>
           </div>
         </div>
 
-        {/* Footer Actions */}
-        <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+        {/* Action Controls Footer */}
+        <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
           <Link
             href="/students"
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+            className="px-4 py-2 text-xs font-medium text-gray-700 hover:text-gray-900 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg shadow-2xs transition-colors"
           >
             Cancel
           </Link>
-
           <button
             type="submit"
-            disabled={isSubmitting}
-            className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-medium text-white bg-navy-800 hover:bg-navy-900 rounded-lg shadow-xs focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 transition-colors disabled:opacity-50 cursor-pointer"
+            disabled={createStudentMutation.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-navy-800 hover:bg-navy-900 rounded-lg shadow-xs transition-colors disabled:opacity-50"
           >
-            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Save Student & Generate ID
+            {createStudentMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            Save Student Admission Profile
           </button>
         </div>
       </form>

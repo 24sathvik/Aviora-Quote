@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
@@ -44,7 +45,7 @@ export function PayslipList() {
 
   // Fetch faculty list for filter dropdown
   const { data: facultyList } = useQuery({
-    queryKey: ['faculty-filter-list'],
+    queryKey: queryKeys.faculty.filterList,
     queryFn: async () => {
       const { data } = await supabase.from('faculty').select('id, name').order('name')
       return (data || []) as Faculty[]
@@ -53,7 +54,7 @@ export function PayslipList() {
 
   // Paginated and filtered payslips query
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['payslips', page, selectedFaculty, selectedYear],
+    queryKey: queryKeys.payslips.list({ page, facultyId: selectedFaculty, year: selectedYear }),
     queryFn: async () => {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
@@ -87,7 +88,7 @@ export function PayslipList() {
         totalCount: count || 0,
       }
     },
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
 
   const payslips = data?.payslips || []

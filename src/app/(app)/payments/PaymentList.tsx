@@ -2,22 +2,24 @@
 
 import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
 import {
-  CreditCard,
+  Receipt,
   Search,
   Plus,
   Filter,
   ChevronLeft,
   ChevronRight,
   Download,
-  Calendar,
-  Layers,
-  FileSpreadsheet,
-  Receipt,
+  Eye,
+  CreditCard,
+  Building2,
+  QrCode,
+  Banknote,
 } from 'lucide-react'
 import type { Payment, PaymentMode } from '@/types/database'
 
@@ -42,7 +44,7 @@ export function PaymentList() {
 
   // Server-side paginated and filtered payments query
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['payments', page, debouncedSearch, modeFilter],
+    queryKey: queryKeys.payments.list({ page, search: debouncedSearch, mode: modeFilter }),
     queryFn: async () => {
       const from = page * PAGE_SIZE
       const to = from + PAGE_SIZE - 1
@@ -88,7 +90,7 @@ export function PaymentList() {
         totalCount: count || 0,
       }
     },
-    placeholderData: (prev) => prev,
+    placeholderData: keepPreviousData,
   })
 
   const payments = data?.payments || []

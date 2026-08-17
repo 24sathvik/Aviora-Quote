@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import { FacultySalarySection } from './FacultySalarySection'
@@ -38,7 +39,7 @@ export function FacultyProfile() {
 
   // Fetch faculty profile
   const { data: faculty, isLoading, isError } = useQuery({
-    queryKey: ['faculty-member', facultyId],
+    queryKey: queryKeys.faculty.detail(facultyId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('faculty')
@@ -62,10 +63,10 @@ export function FacultyProfile() {
       if (error) throw error
     },
     onMutate: async (updatedData) => {
-      await queryClient.cancelQueries({ queryKey: ['faculty-member', facultyId] })
-      const prev = queryClient.getQueryData<Faculty>(['faculty-member', facultyId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.faculty.detail(facultyId) })
+      const prev = queryClient.getQueryData<Faculty>(queryKeys.faculty.detail(facultyId))
       if (prev) {
-        queryClient.setQueryData<Faculty>(['faculty-member', facultyId], {
+        queryClient.setQueryData<Faculty>(queryKeys.faculty.detail(facultyId), {
           ...prev,
           ...updatedData,
         })
@@ -73,7 +74,7 @@ export function FacultyProfile() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['faculty-member', facultyId], context?.prev)
+      queryClient.setQueryData(queryKeys.faculty.detail(facultyId), context?.prev)
       toastError('Failed to update faculty profile', err.message)
     },
     onSuccess: () => {
@@ -81,8 +82,8 @@ export function FacultyProfile() {
       setIsEditModalOpen(false)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['faculty-member', facultyId] })
-      queryClient.invalidateQueries({ queryKey: ['faculty'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.detail(facultyId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.all })
     },
   })
 
@@ -96,10 +97,10 @@ export function FacultyProfile() {
       if (error) throw error
     },
     onMutate: async (active) => {
-      await queryClient.cancelQueries({ queryKey: ['faculty-member', facultyId] })
-      const prev = queryClient.getQueryData<Faculty>(['faculty-member', facultyId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.faculty.detail(facultyId) })
+      const prev = queryClient.getQueryData<Faculty>(queryKeys.faculty.detail(facultyId))
       if (prev) {
-        queryClient.setQueryData<Faculty>(['faculty-member', facultyId], {
+        queryClient.setQueryData<Faculty>(queryKeys.faculty.detail(facultyId), {
           ...prev,
           active,
         })
@@ -107,15 +108,15 @@ export function FacultyProfile() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['faculty-member', facultyId], context?.prev)
+      queryClient.setQueryData(queryKeys.faculty.detail(facultyId), context?.prev)
       toastError('Failed to update status', err.message)
     },
     onSuccess: (_, active) => {
       success(active ? 'Faculty activated' : 'Faculty deactivated (retained for past payslips)')
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['faculty-member', facultyId] })
-      queryClient.invalidateQueries({ queryKey: ['faculty'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.detail(facultyId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.faculty.all })
     },
   })
 

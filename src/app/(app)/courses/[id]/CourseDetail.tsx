@@ -1,29 +1,38 @@
 'use client'
 
 import React, { useState } from 'react'
-import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
-  GraduationCap,
   ArrowLeft,
-  Plus,
+  GraduationCap,
+  Layers,
   Edit2,
   Trash2,
+  Plus,
   ChevronDown,
-  ChevronRight,
-  AlertTriangle,
-  Receipt,
-  Check,
-  Calendar,
-  Layers,
-  IndianRupee,
+  ChevronUp,
+  AlertCircle,
+  FileSpreadsheet,
+  Banknote,
+  DollarSign,
   Loader2,
+  Check,
   X,
+  Clock,
+  Sparkles,
+  AlertTriangle,
+  Calendar,
+  IndianRupee,
+  Receipt,
+  ChevronRight,
+  BookOpen,
 } from 'lucide-react'
 import type { Course, CourseTerm, FeeHead } from '@/types/database'
 
@@ -49,7 +58,7 @@ export function CourseDetail() {
 
   // Fetch course with terms & fee heads
   const { data: course, isLoading, isError } = useQuery({
-    queryKey: ['course', courseId],
+    queryKey: queryKeys.courses.detail(courseId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('courses')
@@ -114,10 +123,10 @@ export function CourseDetail() {
       if (error) throw error
     },
     onMutate: async (newValues) => {
-      await queryClient.cancelQueries({ queryKey: ['course', courseId] })
-      const prev = queryClient.getQueryData<Course>(['course', courseId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      const prev = queryClient.getQueryData<Course>(queryKeys.courses.detail(courseId))
       if (prev) {
-        queryClient.setQueryData<Course>(['course', courseId], {
+        queryClient.setQueryData<Course>(queryKeys.courses.detail(courseId), {
           ...prev,
           ...newValues,
         })
@@ -125,7 +134,7 @@ export function CourseDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['course', courseId], context?.prev)
+      queryClient.setQueryData(queryKeys.courses.detail(courseId), context?.prev)
       toastError('Failed to update course', err.message)
     },
     onSuccess: () => {
@@ -133,8 +142,8 @@ export function CourseDetail() {
       setIsEditCourseModalOpen(false)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['course', courseId] })
-      queryClient.invalidateQueries({ queryKey: ['courses'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all })
     },
   })
 
@@ -164,8 +173,8 @@ export function CourseDetail() {
       }
     },
     onMutate: async (newTerm) => {
-      await queryClient.cancelQueries({ queryKey: ['course', courseId] })
-      const prev = queryClient.getQueryData<Course>(['course', courseId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      const prev = queryClient.getQueryData<Course>(queryKeys.courses.detail(courseId))
       if (prev) {
         let updatedTerms = [...(prev.course_terms || [])]
         if (newTerm.id) {
@@ -185,7 +194,7 @@ export function CourseDetail() {
         }
         updatedTerms.sort((a, b) => a.term_no - b.term_no)
         const total_fee = updatedTerms.reduce((s, t) => s + (Number(t.term_fee) || 0), 0)
-        queryClient.setQueryData<Course>(['course', courseId], {
+        queryClient.setQueryData<Course>(queryKeys.courses.detail(courseId), {
           ...prev,
           course_terms: updatedTerms,
           total_fee,
@@ -195,7 +204,7 @@ export function CourseDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['course', courseId], context?.prev)
+      queryClient.setQueryData(queryKeys.courses.detail(courseId), context?.prev)
       toastError('Failed to save term', err.message)
     },
     onSuccess: () => {
@@ -204,8 +213,8 @@ export function CourseDetail() {
       setEditingTerm(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['course', courseId] })
-      queryClient.invalidateQueries({ queryKey: ['courses'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all })
     },
   })
 
@@ -216,12 +225,12 @@ export function CourseDetail() {
       if (error) throw error
     },
     onMutate: async (termId) => {
-      await queryClient.cancelQueries({ queryKey: ['course', courseId] })
-      const prev = queryClient.getQueryData<Course>(['course', courseId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      const prev = queryClient.getQueryData<Course>(queryKeys.courses.detail(courseId))
       if (prev) {
         const updatedTerms = (prev.course_terms || []).filter((t) => t.id !== termId)
         const total_fee = updatedTerms.reduce((s, t) => s + (Number(t.term_fee) || 0), 0)
-        queryClient.setQueryData<Course>(['course', courseId], {
+        queryClient.setQueryData<Course>(queryKeys.courses.detail(courseId), {
           ...prev,
           course_terms: updatedTerms,
           total_fee,
@@ -231,7 +240,7 @@ export function CourseDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['course', courseId], context?.prev)
+      queryClient.setQueryData(queryKeys.courses.detail(courseId), context?.prev)
       toastError('Failed to delete term', err.message)
     },
     onSuccess: () => {
@@ -239,8 +248,8 @@ export function CourseDetail() {
       setDeletingTerm(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['course', courseId] })
-      queryClient.invalidateQueries({ queryKey: ['courses'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.all })
     },
   })
 
@@ -268,8 +277,8 @@ export function CourseDetail() {
       }
     },
     onMutate: async (newFeeHead) => {
-      await queryClient.cancelQueries({ queryKey: ['course', courseId] })
-      const prev = queryClient.getQueryData<Course>(['course', courseId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      const prev = queryClient.getQueryData<Course>(queryKeys.courses.detail(courseId))
       if (prev) {
         const updatedTerms = (prev.course_terms || []).map((t) => {
           if (t.id === newFeeHead.course_term_id) {
@@ -290,7 +299,7 @@ export function CourseDetail() {
           }
           return t
         })
-        queryClient.setQueryData<Course>(['course', courseId], {
+        queryClient.setQueryData<Course>(queryKeys.courses.detail(courseId), {
           ...prev,
           course_terms: updatedTerms,
         })
@@ -298,7 +307,7 @@ export function CourseDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['course', courseId], context?.prev)
+      queryClient.setQueryData(queryKeys.courses.detail(courseId), context?.prev)
       toastError('Failed to save fee breakup item', err.message)
     },
     onSuccess: () => {
@@ -309,7 +318,7 @@ export function CourseDetail() {
       setEditingFeeHead(null)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['course', courseId] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.detail(courseId) })
     },
   })
 
@@ -320,8 +329,8 @@ export function CourseDetail() {
       if (error) throw error
     },
     onMutate: async ({ id, course_term_id }) => {
-      await queryClient.cancelQueries({ queryKey: ['course', courseId] })
-      const prev = queryClient.getQueryData<Course>(['course', courseId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.courses.detail(courseId) })
+      const prev = queryClient.getQueryData<Course>(queryKeys.courses.detail(courseId))
       if (prev) {
         const updatedTerms = (prev.course_terms || []).map((t) => {
           if (t.id === course_term_id) {
@@ -332,7 +341,7 @@ export function CourseDetail() {
           }
           return t
         })
-        queryClient.setQueryData<Course>(['course', courseId], {
+        queryClient.setQueryData<Course>(queryKeys.courses.detail(courseId), {
           ...prev,
           course_terms: updatedTerms,
         })
@@ -340,14 +349,14 @@ export function CourseDetail() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['course', courseId], context?.prev)
+      queryClient.setQueryData(queryKeys.courses.detail(courseId), context?.prev)
       toastError('Failed to delete fee breakup item', err.message)
     },
     onSuccess: () => {
       success('Fee item removed')
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['course', courseId] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.courses.detail(courseId) })
     },
   })
 

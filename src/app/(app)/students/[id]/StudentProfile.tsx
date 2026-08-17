@@ -1,38 +1,33 @@
 'use client'
 
 import React, { useState } from 'react'
-import Link from 'next/link'
 import { useParams } from 'next/navigation'
+import Link from 'next/link'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
+import { queryKeys } from '@/lib/query-keys'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
-import { EnrollmentsSection } from './EnrollmentsSection'
 import { StudentFeeLedgerSection } from './StudentFeeLedgerSection'
+import { EnrollmentsSection } from './EnrollmentsSection'
 import {
   ArrowLeft,
   User,
   Phone,
   Mail,
   Calendar,
+  Shield,
   MapPin,
   Edit2,
-  Receipt,
-  FileText,
-  AlertCircle,
-  Clock,
-  Loader2,
-  X,
   Upload,
+  X,
+  Loader2,
+  AlertCircle,
+  FileSpreadsheet,
+  Clock,
 } from 'lucide-react'
 import type { Student, StudentStatus } from '@/types/database'
-
-function getStoragePhotoPath(fileName: string) {
-  const ext = fileName.split('.').pop() || 'jpg'
-  const uniqueId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'p_' + Math.floor(Math.random() * 1000000)
-  return `student-${uniqueId}.${ext}`
-}
 
 export function StudentProfile() {
   const params = useParams()
@@ -45,7 +40,7 @@ export function StudentProfile() {
 
   // Fetch student profile
   const { data: student, isLoading, isError } = useQuery({
-    queryKey: ['student', studentId],
+    queryKey: queryKeys.students.detail(studentId),
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
@@ -58,7 +53,7 @@ export function StudentProfile() {
     },
   })
 
-  // Quick Status Update Mutation (Optimistic)
+  // Quick Status Update Mutation
   const updateStatusMutation = useMutation({
     mutationFn: async (newStatus: StudentStatus) => {
       const { error } = await supabase
@@ -68,10 +63,10 @@ export function StudentProfile() {
       if (error) throw error
     },
     onMutate: async (newStatus) => {
-      await queryClient.cancelQueries({ queryKey: ['student', studentId] })
-      const prev = queryClient.getQueryData<Student>(['student', studentId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.students.detail(studentId) })
+      const prev = queryClient.getQueryData<Student>(queryKeys.students.detail(studentId))
       if (prev) {
-        queryClient.setQueryData<Student>(['student', studentId], {
+        queryClient.setQueryData<Student>(queryKeys.students.detail(studentId), {
           ...prev,
           status: newStatus,
         })
@@ -79,32 +74,47 @@ export function StudentProfile() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['student', studentId], context?.prev)
+      queryClient.setQueryData(queryKeys.students.detail(studentId), context?.prev)
       toastError('Failed to update status', err.message)
     },
     onSuccess: () => {
       success('Student status updated')
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
-      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.detail(studentId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all })
     },
   })
 
-  // Full Profile Update Mutation (Optimistic)
+  // Full Profile Update Mutation
   const updateProfileMutation = useMutation({
     mutationFn: async (updatedData: Partial<Student> & { newPhotoFile?: File | null }) => {
       let photo_url = updatedData.photo_url
 
       if (updatedData.newPhotoFile) {
-        const path = getStoragePhotoPath(updatedData.newPhotoFile.name)
+        const deterministicPath = `students/${studentId}/profile.webp`
+
+        // 1. Upload new photo first with upsert: true (safe: if upload fails, previous photo is preserved)
         const { error: uploadError } = await supabase.storage
           .from('student-photos')
-          .upload(path, updatedData.newPhotoFile)
+          .upload(deterministicPath, updatedData.newPhotoFile, { upsert: true, contentType: 'image/webp' })
 
         if (uploadError) throw new Error('Photo upload failed: ' + uploadError.message)
-        const { data: urlData } = supabase.storage.from('student-photos').getPublicUrl(path)
+
+        // 2. Obtain new public URL
+        const { data: urlData } = supabase.storage.from('student-photos').getPublicUrl(deterministicPath)
         photo_url = urlData.publicUrl
+
+        // 3. Only after successful upload, clean up obsolete legacy photo if path differed
+        if (student?.photo_url) {
+          const oldPathMatch = student.photo_url.split('/student-photos/').pop()
+          if (oldPathMatch) {
+            const decodedOldPath = decodeURIComponent(oldPathMatch)
+            if (decodedOldPath !== deterministicPath) {
+              await supabase.storage.from('student-photos').remove([decodedOldPath])
+            }
+          }
+        }
       }
 
       const payload: Partial<Student> = {
@@ -128,10 +138,10 @@ export function StudentProfile() {
       if (error) throw error
     },
     onMutate: async (updatedData) => {
-      await queryClient.cancelQueries({ queryKey: ['student', studentId] })
-      const prev = queryClient.getQueryData<Student>(['student', studentId])
+      await queryClient.cancelQueries({ queryKey: queryKeys.students.detail(studentId) })
+      const prev = queryClient.getQueryData<Student>(queryKeys.students.detail(studentId))
       if (prev) {
-        queryClient.setQueryData<Student>(['student', studentId], {
+        queryClient.setQueryData<Student>(queryKeys.students.detail(studentId), {
           ...prev,
           ...updatedData,
         })
@@ -139,16 +149,16 @@ export function StudentProfile() {
       return { prev }
     },
     onError: (err: Error, _vars, context) => {
-      queryClient.setQueryData(['student', studentId], context?.prev)
-      toastError('Failed to update profile', err.message)
+      queryClient.setQueryData(queryKeys.students.detail(studentId), context?.prev)
+      toastError('Failed to update student profile', err.message)
     },
     onSuccess: () => {
-      success('Student profile updated')
+      success('Student profile updated successfully')
       setIsEditModalOpen(false)
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['student', studentId] })
-      queryClient.invalidateQueries({ queryKey: ['students'] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.detail(studentId) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.students.all })
     },
   })
 
