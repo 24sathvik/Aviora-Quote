@@ -87,6 +87,16 @@ export const queryKeys = {
   // Company Settings
   companySettings: ['company-settings'] as const,
 
+  // User Profile & Role
+  userProfile: (userId?: string) => ['user-profile', userId || 'current'] as const,
+
+  // Operational Expenses
+  expenses: {
+    all: ['expenses'] as const,
+    list: (filters?: Record<string, any>) => ['expenses-list', filters] as const,
+    summary: ['expenses-summary'] as const,
+  },
+
   // Reports
   reports: {
     outstanding: (filters?: Record<string, any>) => ['report-outstanding-fees', filters] as const,

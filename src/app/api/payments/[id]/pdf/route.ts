@@ -73,11 +73,21 @@ export async function GET(
     .limit(1)
     .maybeSingle()
 
+  const student = paymentData.students || {
+    id: paymentData.student_id || '',
+    name: (paymentData as any).student_name || (paymentData.invoices as any)?.student_name || 'Historical Student',
+    admission_no: (paymentData as any).student_admission_no || (paymentData.invoices as any)?.student_admission_no || 'N/A',
+    phone: '',
+    email: '',
+  }
+
   const payment = {
     ...paymentData,
+    students: student,
     invoices: paymentData.invoices
       ? {
           ...paymentData.invoices,
+          students: student,
           invoice_balances: invoiceBalanceData || {
             invoice_id: invoiceId,
             grand_total: paymentData.invoices.grand_total,

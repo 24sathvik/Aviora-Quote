@@ -86,9 +86,9 @@ export function StudentList() {
       }
 
       if (debouncedSearch) {
-        // Search by name, admission_no, phone, or email
+        // Search by name, admission_no, phone, email, or roll_number
         query = query.or(
-          `name.ilike.%${debouncedSearch}%,admission_no.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%`
+          `name.ilike.%${debouncedSearch}%,admission_no.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%,roll_number.ilike.%${debouncedSearch}%`
         )
       }
 
@@ -262,6 +262,9 @@ export function StudentList() {
                     Admission No
                   </th>
                   <th scope="col" className="px-6 py-3.5">
+                    Roll No
+                  </th>
+                  <th scope="col" className="px-6 py-3.5">
                     Student Details
                   </th>
                   <th scope="col" className="px-6 py-3.5">
@@ -294,12 +297,17 @@ export function StudentList() {
                       </Link>
                     </td>
 
+                    {/* Roll Number */}
+                    <td className="px-6 py-4 whitespace-nowrap font-mono font-medium text-xs text-gray-700">
+                      {student.roll_number || <span className="text-gray-400 italic font-sans">—</span>}
+                    </td>
+
                     {/* Student Details with Avatar */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
                         {student.photo_url ? (
                           <img
-                            src={student.photo_url}
+                            src={student.updated_at ? `${student.photo_url}?v=${student.updated_at}` : student.photo_url}
                             alt={student.name}
                             className="w-9 h-9 rounded-full object-cover border border-gray-200"
                           />

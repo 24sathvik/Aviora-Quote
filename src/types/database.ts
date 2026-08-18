@@ -4,6 +4,7 @@ export type EnrollmentStatus = 'active' | 'completed' | 'dropped'
 export interface Student {
   id: string
   admission_no: string
+  roll_number?: string | null
   name: string
   dob: string | null
   phone: string
@@ -15,6 +16,7 @@ export interface Student {
   status: StudentStatus
   photo_url: string | null
   created_at: string
+  updated_at?: string
   created_by: string | null
   enrollments?: Enrollment[]
 }

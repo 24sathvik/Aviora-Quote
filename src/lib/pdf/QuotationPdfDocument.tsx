@@ -16,14 +16,14 @@ const styles = StyleSheet.create({
   },
   docTitle: {
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   docNumber: {
     color: '#f8fafc',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
   },
   metaGrid: {
@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
   },
   metaHeading: {
     fontSize: 8.5,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     textTransform: 'uppercase',
     marginBottom: 4,
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   metaValue: {
     width: '65%',
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   table: {
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#0f172a',
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 8,
     padding: '6 8',
   },
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   colQty: { width: '10%', textAlign: 'center' },
   colRate: { width: '16%', textAlign: 'right' },
   colDisc: { width: '12%', textAlign: 'right' },
-  colTotal: { width: '16%', textAlign: 'right', fontFamily: 'Helvetica-Bold' },
+  colTotal: { width: '16%', textAlign: 'right', fontWeight: 'bold' },
   summaryContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -134,12 +134,12 @@ const styles = StyleSheet.create({
     borderTopColor: '#0f172a',
   },
   grandTotalLabel: {
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 10,
     color: '#0f172a',
   },
   grandTotalValue: {
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 10,
     color: '#0f172a',
   },
@@ -256,7 +256,7 @@ export function QuotationPdfDocument({ quotation, settings }: QuotationPdfDocume
           <View style={styles.totalsBlock}>
             <View style={styles.totalRow}>
               <Text style={{ color: '#64748b' }}>Subtotal:</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              <Text style={{ fontWeight: 'bold' }}>
                 {formatCurrency(quotation.subtotal)}
               </Text>
             </View>
@@ -264,7 +264,7 @@ export function QuotationPdfDocument({ quotation, settings }: QuotationPdfDocume
             {quotation.discount_amount > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#b91c1c' }}>Scholarship / Discount:</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+                <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                   - {formatCurrency(quotation.discount_amount)}
                 </Text>
               </View>
@@ -273,7 +273,7 @@ export function QuotationPdfDocument({ quotation, settings }: QuotationPdfDocume
             {quotation.gst_percent > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#64748b' }}>GST ({quotation.gst_percent}%):</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+                <Text style={{ fontWeight: 'bold' }}>
                   {formatCurrency(quotation.gst_amount)}
                 </Text>
               </View>

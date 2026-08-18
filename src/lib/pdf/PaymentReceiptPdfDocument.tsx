@@ -16,14 +16,14 @@ const styles = StyleSheet.create({
   },
   receiptTitle: {
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   receiptNumber: {
     color: '#ecfdf5',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
   },
   metaGrid: {
@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
   },
   metaHeading: {
     fontSize: 8.5,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     textTransform: 'uppercase',
     marginBottom: 4,
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   metaValue: {
     width: '62%',
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   amountCard: {
@@ -77,13 +77,13 @@ const styles = StyleSheet.create({
   },
   amountLabel: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#065f46',
     textTransform: 'uppercase',
   },
   amountValue: {
     fontSize: 16,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#047857',
   },
   table: {
@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#0f172a',
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 8,
     padding: '6 8',
   },
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     fontSize: 8,
   },
   colParam: { width: '40%', color: '#64748b' },
-  colValue: { width: '60%', fontFamily: 'Helvetica-Bold', color: '#0f172a' },
+  colValue: { width: '60%', fontWeight: 'bold', color: '#0f172a' },
   notesBox: {
     backgroundColor: '#f8fafc',
     padding: 8,

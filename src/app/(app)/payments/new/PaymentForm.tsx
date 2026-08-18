@@ -58,7 +58,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
-        .select('id, name, admission_no, phone')
+        .select('id, name, admission_no, roll_number, phone')
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as Student[]
@@ -499,9 +499,6 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                 Generate Receipt & Save
               </button>
 
-              <p className="text-2xs text-gray-400 text-center">
-                Payments are processed authoritatively via DB RPC and immutable once recorded.
-              </p>
             </div>
           </div>
         </div>

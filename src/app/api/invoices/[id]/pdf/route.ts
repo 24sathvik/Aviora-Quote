@@ -71,8 +71,30 @@ export async function GET(
     .limit(1)
     .maybeSingle()
 
+  const student = invoiceData.students || {
+    id: invoiceData.student_id || '',
+    name: (invoiceData as any).student_name || 'Historical Student',
+    admission_no: (invoiceData as any).student_admission_no || 'N/A',
+    phone: (invoiceData as any).student_phone || '',
+    email: (invoiceData as any).student_email || '',
+    address: '',
+  }
+
+  const enrollment = invoiceData.enrollments || {
+    id: invoiceData.enrollment_id || '',
+    batch_year: new Date().getFullYear(),
+    current_term: 1,
+    courses: {
+      id: '',
+      name: (invoiceData as any).course_name || 'Academic Program Track',
+      duration_terms: 1,
+    },
+  }
+
   const invoice = {
     ...invoiceData,
+    students: student,
+    enrollments: enrollment,
     invoice_balances: balanceData || {
       invoice_id: invoiceData.id,
       grand_total: invoiceData.grand_total,

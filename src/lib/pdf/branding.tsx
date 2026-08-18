@@ -1,11 +1,28 @@
 import React from 'react'
-import { Text, View, StyleSheet, Image } from '@react-pdf/renderer'
+import { Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer'
+import path from 'path'
 import type { CompanySettings } from '@/types/database'
+
+// Register Noto Sans locally so ₹ (U+20B9) renders correctly in all PDFs.
+// The font files are bundled inside /public/fonts — no external CDN dependency.
+Font.register({
+  family: 'NotoSans',
+  fonts: [
+    {
+      src: path.join(process.cwd(), 'public', 'fonts', 'NotoSans-Regular.ttf'),
+      fontWeight: 'normal',
+    },
+    {
+      src: path.join(process.cwd(), 'public', 'fonts', 'NotoSans-Bold.ttf'),
+      fontWeight: 'bold',
+    },
+  ],
+})
 
 export const pdfStyles = StyleSheet.create({
   page: {
     padding: 36,
-    fontFamily: 'Helvetica',
+    fontFamily: 'NotoSans',
     fontSize: 9,
     color: '#1e293b',
     backgroundColor: '#ffffff',
@@ -31,7 +48,7 @@ export const pdfStyles = StyleSheet.create({
   },
   companyName: {
     fontSize: 14,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     marginBottom: 3,
   },
@@ -48,12 +65,12 @@ export const pdfStyles = StyleSheet.create({
   },
   taxBadge: {
     fontSize: 7.5,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   sectionTitle: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -79,7 +96,7 @@ export const pdfStyles = StyleSheet.create({
   },
   bankValue: {
     width: '60%',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     fontSize: 8,
   },
@@ -117,7 +134,7 @@ export const pdfStyles = StyleSheet.create({
   },
   signatoryTitle: {
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   signatorySubtitle: {
@@ -142,7 +159,7 @@ export function PdfHeader({ settings }: { settings?: Partial<CompanySettings> | 
           <Image src={settings.logo_url} style={pdfStyles.companyLogo} />
         ) : (
           <View style={{ backgroundColor: '#0f172a', padding: 8, borderRadius: 4 }}>
-            <Text style={{ color: '#ffffff', fontFamily: 'Helvetica-Bold', fontSize: 12 }}>AVIORA</Text>
+            <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 12 }}>AVIORA</Text>
           </View>
         )}
       </View>

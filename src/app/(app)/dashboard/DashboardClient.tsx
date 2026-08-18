@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import { createClient } from '@/lib/supabase/client'
 import { getDashboardSummary, type DashboardPeriod } from '@/lib/rpc/reads'
 import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
@@ -22,11 +23,26 @@ import {
 
 export function DashboardClient() {
   const [period, setPeriod] = useState<DashboardPeriod>('all_time')
+  const supabase = createClient()
 
   // Authoritative Single Read RPC Query for Executive Dashboard
   const { data: summary, isLoading, isError, error } = useQuery({
     queryKey: queryKeys.dashboard(period),
     queryFn: () => getDashboardSummary(period),
+  })
+
+  // Completely separate query for Operational Expenses summary RPC
+  const { data: expSummary } = useQuery({
+    queryKey: queryKeys.expenses.summary,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('get_operational_expenses_summary')
+      if (error) throw error
+      return data as {
+        total_this_month: number
+        total_all_time: number
+        category_breakdown_this_month: Array<{ category: string; total: number }>
+      }
+    },
   })
 
   if (isLoading) {
@@ -36,7 +52,8 @@ export function DashboardClient() {
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-10 w-48" />
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Skeleton className="h-32 rounded-xl" />
           <Skeleton className="h-32 rounded-xl" />
           <Skeleton className="h-32 rounded-xl" />
           <Skeleton className="h-32 rounded-xl" />
@@ -102,7 +119,7 @@ export function DashboardClient() {
       </div>
 
       {/* Financial Summary Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Card 1: Billed for Period (Invoice-date based) */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -141,15 +158,44 @@ export function DashboardClient() {
           </p>
         </div>
 
-        {/* Card 3: Outstanding Current (Always Live / Current) */}
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden">
+        {/* Card 3: Operational Expenses — clickable → /expenses */}
+        <Link
+          href="/expenses"
+          className="block bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden cursor-pointer hover:border-purple-300 hover:shadow-md transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-2xs font-bold uppercase tracking-wider text-purple-900">
+              Operational Expenses
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-700 flex items-center justify-center">
+              <CreditCard className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="text-2xl font-extrabold text-purple-950 font-mono">
+            {formatCurrency(
+              period === 'this_month'
+                ? expSummary?.total_this_month || 0
+                : expSummary?.total_all_time || 0
+            )}
+          </div>
+          <p className="text-2xs text-purple-700 flex items-center gap-1 font-medium">
+            <Receipt className="w-3 h-3 text-purple-600" />
+            {period === 'this_month' ? 'Total spent in current month' : 'Cumulative all-time expenditure'}
+          </p>
+        </Link>
+
+        {/* Card 4: Outstanding Current (Always Live / Current) — clickable → /reports */}
+        <Link
+          href="/reports"
+          className="block bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-3 relative overflow-hidden cursor-pointer hover:border-rose-300 hover:shadow-md transition-all"
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <span className="text-2xs font-bold uppercase tracking-wider text-rose-800">
                 Total Balance Outstanding
               </span>
               <div
-                className="group relative cursor-help"
+                className="group relative"
                 title="Always live across all active invoices in system. Independent of period filter."
               >
                 <HelpCircle className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600" />
@@ -165,7 +211,7 @@ export function DashboardClient() {
           <p className="text-2xs text-gray-500 font-medium">
             Always live/current across all active tax invoices
           </p>
-        </div>
+        </Link>
       </div>
 
       {/* Invoice Status Distribution Strip (Always Live / Current) */}
@@ -175,7 +221,6 @@ export function DashboardClient() {
             <BarChart3 className="w-4 h-4 text-navy-700" />
             Live Invoice Status Counts
           </h3>
-          <span className="text-2xs text-gray-400 font-mono">Real-time DB Counts</span>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -201,26 +246,24 @@ export function DashboardClient() {
         </div>
       </div>
 
-      {/* Main Grid: Course Breakdown & Recent Activity */}
+      {/* Main Row 1: Course Program Breakdown (2 Cols) & Recent Tax Invoices (1 Col) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column (2 Cols): Course Breakdown & Payroll */}
-        <div className="lg:col-span-2 space-y-8">
-          {/* Course Program Fee Revenue Breakdown */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+        {/* Course Program Fee Revenue Breakdown (2 Cols) */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4 flex flex-col justify-between">
+          <div>
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                 <GraduationCap className="w-4 h-4 text-navy-700" />
                 Course Program Fee Breakdown
               </h3>
-              <span className="text-2xs text-gray-400">Authoritative RPC Data</span>
             </div>
 
             {summary.course_breakdown.length === 0 ? (
-              <p className="text-xs text-gray-400 italic py-4 text-center">
+              <p className="text-xs text-gray-400 italic py-8 text-center">
                 No course breakdown data recorded for this period.
               </p>
             ) : (
-              <div className="overflow-x-auto border border-gray-200 rounded-lg">
+              <div className="overflow-x-auto border border-gray-200 rounded-lg mt-4">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-gray-50 border-b border-gray-200 text-gray-700 font-semibold uppercase tracking-wider text-2xs">
                     <tr>
@@ -250,97 +293,118 @@ export function DashboardClient() {
               </div>
             )}
           </div>
+        </div>
 
-          {/* Current Month Faculty Payroll Card */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+        {/* Recent Tax Invoices Feed (1 Col) */}
+        <div className="lg:col-span-1 bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <FileSpreadsheet className="w-4 h-4 text-navy-700" />
+              Recent Tax Invoices
+            </h3>
+            <Link href="/invoices" className="text-2xs font-semibold text-accent hover:underline flex items-center gap-1">
+              View All <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          {summary.recent_invoices.length === 0 ? (
+            <p className="text-xs text-gray-400 italic py-4">No recent invoices found.</p>
+          ) : (
+            <div className="space-y-3">
+              {summary.recent_invoices.map((inv) => (
+                <div key={inv.id} className="p-3 rounded-lg bg-gray-50/70 border border-gray-100 flex items-center justify-between text-xs">
+                  <div>
+                    <Link href={`/invoices/${inv.id}`} className="font-mono font-bold text-navy-900 hover:underline">
+                      {inv.invoice_no}
+                    </Link>
+                    <span className="text-2xs text-gray-500 block">{inv.student_name || 'Enrolled Student'}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-gray-900 block">{formatCurrency(inv.grand_total)}</span>
+                    <span className="text-2xs text-gray-400">{inv.invoice_date}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Row 2: Faculty Payroll Disbursements (1 Col) & Recent Payment Receipts (1 Col) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Faculty Payroll Disbursements Card (1 Col) */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-5 flex flex-col justify-between">
+          <div>
             <div className="flex items-center justify-between pb-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
                 <Banknote className="w-4 h-4 text-navy-700" />
                 Faculty Payroll Disbursements
               </h3>
-              <span className="text-2xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                Current Month Total
-              </span>
+              <Link href="/payslips" className="text-2xs font-semibold text-navy-700 hover:underline flex items-center gap-1">
+                View Payslips <ArrowRight className="w-3 h-3" />
+              </Link>
             </div>
 
-            <div className="p-4 rounded-xl bg-navy-900 text-white space-y-1">
-              <span className="text-2xs font-bold uppercase tracking-wider text-sky-400 block">
-                Total Net Salary Disbursed (Current Month)
-              </span>
-              <div className="text-2xl font-extrabold font-mono text-white">
+            <p className="text-xs text-gray-500 mt-3 leading-relaxed">
+              Faculty salary disbursements, gross earnings, statutory deductions, and monthly net pay registers.
+            </p>
+
+            <div className="mt-4 p-5 rounded-xl bg-navy-900 text-white space-y-2 relative overflow-hidden shadow-md">
+              <div className="flex items-center justify-between">
+                <span className="text-2xs font-bold uppercase tracking-wider text-sky-400">
+                  Total Net Salary Disbursed (Current Month)
+                </span>
+                <span className="text-2xs font-mono bg-navy-800 text-sky-300 px-2 py-0.5 rounded border border-navy-700">
+                  Current Month
+                </span>
+              </div>
+              <div className="text-3xl font-black font-mono text-white">
                 {formatCurrency(summary.current_month_payroll)}
               </div>
+              <p className="text-2xs text-navy-200 pt-1">
+                Authoritative sum of all finalized net salary payslips generated for current month.
+              </p>
             </div>
+          </div>
+
+          <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-2xs text-gray-500">
+            <span>Faculty Payroll Register</span>
+            <Link href="/reports" className="font-semibold text-navy-800 hover:underline">
+              Audit Payroll Reports &rarr;
+            </Link>
           </div>
         </div>
 
-        {/* Right Column (1 Col): Recent Invoices & Recent Payments */}
-        <div className="space-y-8">
-          {/* Recent Tax Invoices Feed */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-navy-700" />
-                Recent Tax Invoices
-              </h3>
-              <Link href="/invoices" className="text-2xs font-semibold text-accent hover:underline flex items-center gap-1">
-                View All <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-
-            {summary.recent_invoices.length === 0 ? (
-              <p className="text-xs text-gray-400 italic py-2">No recent invoices found.</p>
-            ) : (
-              <div className="space-y-3">
-                {summary.recent_invoices.map((inv) => (
-                  <div key={inv.id} className="p-3 rounded-lg bg-gray-50/70 border border-gray-100 flex items-center justify-between text-xs">
-                    <div>
-                      <Link href={`/invoices/${inv.id}`} className="font-mono font-bold text-navy-900 hover:underline">
-                        {inv.invoice_no}
-                      </Link>
-                      <span className="text-2xs text-gray-500 block">{inv.student_name || 'Enrolled Student'}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono font-bold text-gray-900 block">{formatCurrency(inv.grand_total)}</span>
-                      <span className="text-2xs text-gray-400">{inv.invoice_date}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Recent Payment Receipts Feed (1 Col) */}
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-emerald-700" />
+              Recent Payment Receipts
+            </h3>
+            <Link href="/payments" className="text-2xs font-semibold text-emerald-700 hover:underline flex items-center gap-1">
+              View All <ArrowRight className="w-3 h-3" />
+            </Link>
           </div>
 
-          {/* Recent Payment Receipts Feed */}
-          <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-emerald-700" />
-                Recent Payment Receipts
-              </h3>
-              <Link href="/payments" className="text-2xs font-semibold text-emerald-700 hover:underline flex items-center gap-1">
-                View All <ArrowRight className="w-3 h-3" />
-              </Link>
-            </div>
-
-            {summary.recent_payments.length === 0 ? (
-              <p className="text-xs text-gray-400 italic py-2">No recent payment receipts found.</p>
-            ) : (
-              <div className="space-y-3">
-                {summary.recent_payments.map((p) => (
-                  <div key={p.id} className="p-3 rounded-lg bg-emerald-50/40 border border-emerald-100 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="font-mono font-bold text-emerald-900 block">{p.receipt_no}</span>
-                      <span className="text-2xs text-gray-500">{p.student_name || 'Enrolled Student'}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="font-mono font-bold text-emerald-700 block">{formatCurrency(p.amount)}</span>
-                      <span className="text-2xs text-gray-400 font-mono">{p.payment_date}</span>
-                    </div>
+          {summary.recent_payments.length === 0 ? (
+            <p className="text-xs text-gray-400 italic py-4">No recent payment receipts found.</p>
+          ) : (
+            <div className="space-y-3">
+              {summary.recent_payments.map((p) => (
+                <div key={p.id} className="p-3 rounded-lg bg-emerald-50/40 border border-emerald-100 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-mono font-bold text-emerald-900 block">{p.receipt_no}</span>
+                    <span className="text-2xs text-gray-500">{p.student_name || 'Enrolled Student'}</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  <div className="text-right">
+                    <span className="font-mono font-bold text-emerald-700 block">{formatCurrency(p.amount)}</span>
+                    <span className="text-2xs text-gray-400 font-mono">{p.payment_date}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

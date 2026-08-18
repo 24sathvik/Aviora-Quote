@@ -8,6 +8,7 @@ export interface StudentOption {
   name: string
   admission_no: string
   phone: string
+  roll_number?: string | null
 }
 
 export interface SearchableStudentSelectProps {
@@ -42,14 +43,15 @@ export function SearchableStudentSelect({
   // Find currently selected student object
   const selectedStudent = students.find((s) => s.id === value)
 
-  // Filter students by name, admission_no, or phone
+  // Filter students by name, admission_no, phone, or roll_number
   const filteredStudents = students.filter((s) => {
     if (!searchQuery.trim()) return true
     const q = searchQuery.toLowerCase().trim()
     return (
       s.name?.toLowerCase().includes(q) ||
       s.admission_no?.toLowerCase().includes(q) ||
-      s.phone?.toLowerCase().includes(q)
+      s.phone?.toLowerCase().includes(q) ||
+      s.roll_number?.toLowerCase().includes(q)
     )
   })
 
@@ -161,7 +163,7 @@ export function SearchableStudentSelect({
       >
         <span className={`block truncate ${selectedStudent ? 'text-gray-900 font-medium' : 'text-gray-500'}`}>
           {selectedStudent ? (
-            `${selectedStudent.name} (${selectedStudent.admission_no}) — ${selectedStudent.phone}`
+            `${selectedStudent.name} (${selectedStudent.admission_no}${selectedStudent.roll_number ? ` | Roll: ${selectedStudent.roll_number}` : ''}) — ${selectedStudent.phone}`
           ) : (
             placeholder
           )}
@@ -191,7 +193,7 @@ export function SearchableStudentSelect({
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Search by name, admission no, or phone..."
+              placeholder="Search by name, admission no, roll no, or phone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -237,7 +239,7 @@ export function SearchableStudentSelect({
                   >
                     <div className="truncate pr-2">
                       <span className="font-semibold text-gray-900">{s.name}</span>{' '}
-                      <span className="text-gray-500 font-mono">({s.admission_no})</span> —{' '}
+                      <span className="text-gray-500 font-mono">({s.admission_no}{s.roll_number ? ` | Roll: ${s.roll_number}` : ''})</span> —{' '}
                       <span className="text-gray-600">{s.phone}</span>
                     </div>
                     {isSelected && <Check className="w-4 h-4 text-accent shrink-0" />}

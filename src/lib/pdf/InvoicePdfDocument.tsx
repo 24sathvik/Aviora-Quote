@@ -16,14 +16,14 @@ const styles = StyleSheet.create({
   },
   docTitle: {
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   docNumber: {
     color: '#f8fafc',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
   },
   metaGrid: {
@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
   },
   metaHeading: {
     fontSize: 8.5,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     textTransform: 'uppercase',
     marginBottom: 4,
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
   metaValue: {
     width: '62%',
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   table: {
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#0f172a',
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 8,
     padding: '6 8',
   },
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
   colDesc: { width: '56%' },
   colQty: { width: '12%', textAlign: 'center' },
   colRate: { width: '16%', textAlign: 'right' },
-  colTotal: { width: '16%', textAlign: 'right', fontFamily: 'Helvetica-Bold' },
+  colTotal: { width: '16%', textAlign: 'right', fontWeight: 'bold' },
   summaryContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -133,12 +133,12 @@ const styles = StyleSheet.create({
     borderTopColor: '#0f172a',
   },
   grandTotalLabel: {
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 9.5,
     color: '#0f172a',
   },
   grandTotalValue: {
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 9.5,
     color: '#0f172a',
   },
@@ -301,7 +301,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
           <View style={styles.totalsBlock}>
             <View style={styles.totalRow}>
               <Text style={{ color: '#64748b' }}>Term Fee Subtotal:</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              <Text style={{ fontWeight: 'bold' }}>
                 {formatCurrency(invoice.subtotal)}
               </Text>
             </View>
@@ -309,7 +309,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
             {invoice.previous_outstanding > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#64748b' }}>Previous Outstanding:</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+                <Text style={{ fontWeight: 'bold' }}>
                   + {formatCurrency(invoice.previous_outstanding)}
                 </Text>
               </View>
@@ -318,7 +318,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
             {invoice.discount_amount > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#b91c1c' }}>Early Bird / Discount:</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+                <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                   - {formatCurrency(invoice.discount_amount)}
                 </Text>
               </View>
@@ -327,7 +327,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
             {invoice.scholarship_amount > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#b91c1c' }}>Merit Scholarship:</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+                <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                   - {formatCurrency(invoice.scholarship_amount)}
                 </Text>
               </View>
@@ -336,7 +336,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
             {invoice.coupon_amount > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#b91c1c' }}>Promotional Coupon:</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+                <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                   - {formatCurrency(invoice.coupon_amount)}
                 </Text>
               </View>
@@ -345,7 +345,7 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
             {invoice.gst_percent > 0 && (
               <View style={styles.totalRow}>
                 <Text style={{ color: '#64748b' }}>GST ({invoice.gst_percent}%):</Text>
-                <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+                <Text style={{ fontWeight: 'bold' }}>
                   + {formatCurrency(invoice.gst_amount)}
                 </Text>
               </View>
@@ -358,18 +358,18 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
 
             <View style={styles.totalRow}>
               <Text style={{ color: '#059669', fontSize: 8 }}>Amount Paid:</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold', color: '#059669', fontSize: 8 }}>
+              <Text style={{ fontWeight: 'bold', color: '#059669', fontSize: 8 }}>
                 {formatCurrency(amountPaid)}
               </Text>
             </View>
 
             <View style={styles.balanceRow}>
-              <Text style={{ fontFamily: 'Helvetica-Bold', fontSize: 8.5, color: '#0f172a' }}>
+              <Text style={{ fontWeight: 'bold', fontSize: 8.5, color: '#0f172a' }}>
                 Net Balance Due:
               </Text>
               <Text
                 style={{
-                  fontFamily: 'Helvetica-Bold',
+                  fontWeight: 'bold',
                   fontSize: 8.5,
                   color: balanceDue > 0 ? '#b91c1c' : '#059669',
                 }}

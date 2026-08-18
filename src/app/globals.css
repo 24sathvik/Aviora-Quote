@@ -1,19 +1,27 @@
 @import "tailwindcss";
 
 @theme {
-  --color-navy-50: #f0f4f8;
-  --color-navy-100: #d9e2ec;
-  --color-navy-200: #bcccdc;
-  --color-navy-300: #9fb3c8;
-  --color-navy-400: #829ab1;
-  --color-navy-500: #627d98;
-  --color-navy-600: #486581;
-  --color-navy-700: #334e68;
-  --color-navy-800: #243b53;
-  --color-navy-900: #102a43;
-  
-  --color-accent: #3b82f6;
-  --color-accent-hover: #2563eb;
+  /* AVIORA Live Brand Color Tokens (Sampled from aviaraaviation.in & portal.avioraaviation.in) */
+  --color-navy-50: #f0f5fc;
+  --color-navy-100: #d8e5f7;
+  --color-navy-200: #b4d0f0;
+  --color-navy-300: #82b0e6;
+  --color-navy-400: #6491de; /* Aviora Sky Light Blue */
+  --color-navy-500: #2f80ed;
+  --color-navy-600: #0f4383; /* Aviora Portal Blue Header */
+  --color-navy-700: #073d7f; /* AVIORA Primary Deep Brand Blue */
+  --color-navy-800: #0a1b3a; /* Deep Navy Container */
+  --color-navy-900: #073d7f; /* Primary Brand Blue */
+  --color-navy-950: #050e2d; /* AVIORA Dark Midnight Blue */
+
+  /* AVIORA Brand Gold Tokens */
+  --color-gold-400: #e8b86d;
+  --color-gold-500: #c9a84c; /* AVIORA Brand Signature Gold */
+  --color-gold-600: #c8963e;
+  --color-gold-700: #a17424;
+
+  --color-accent: #073d7f;
+  --color-accent-hover: #0f4383;
 }
 
 @layer base {

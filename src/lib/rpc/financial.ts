@@ -44,6 +44,7 @@ export interface CreateInvoiceParams {
   notes?: string | null
   saveAsDraft?: boolean
   idempotencyKey?: string | null
+  manualInvoiceNo?: string | null
 }
 
 export interface CreateInvoiceResult {
@@ -81,6 +82,7 @@ export async function createInvoice(
     p_notes: params.notes ?? null,
     p_save_as_draft: params.saveAsDraft ?? false,
     p_idempotency_key: params.idempotencyKey ?? null,
+    p_manual_invoice_no: params.manualInvoiceNo ?? null,
   })
 
   if (error) {

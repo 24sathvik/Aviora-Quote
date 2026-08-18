@@ -23,6 +23,7 @@ import {
 
 const studentSchema = z.object({
   name: z.string().min(1, 'Student name is required'),
+  roll_number: z.string().optional().nullable(),
   phone: z.string().min(5, 'Valid phone number is required'),
   admission_date: z.string().min(1, 'Admission date is required'),
   dob: z.string().optional().nullable(),
@@ -49,6 +50,7 @@ export function StudentForm() {
     resolver: zodResolver(studentSchema),
     defaultValues: {
       name: '',
+      roll_number: '',
       phone: '',
       admission_date: new Date().toISOString().split('T')[0],
       dob: '',
@@ -84,6 +86,7 @@ export function StudentForm() {
         .from('students')
         .insert({
           name: values.name.trim(),
+          roll_number: values.roll_number && values.roll_number.trim() ? values.roll_number.trim() : null,
           phone: values.phone.trim(),
           admission_date: values.admission_date,
           dob: values.dob ? values.dob : null,
@@ -97,7 +100,15 @@ export function StudentForm() {
         .select('id, admission_no')
         .single()
 
-      if (insertError) throw insertError
+      if (insertError) {
+        if (
+          insertError.message?.toLowerCase().includes('roll_number') ||
+          (insertError.code === '23505' && insertError.message?.toLowerCase().includes('roll'))
+        ) {
+          throw new Error('A student with this Roll Number already exists. Roll numbers must be unique.')
+        }
+        throw insertError
+      }
 
       let photo_url: string | null = null
 
@@ -220,7 +231,7 @@ export function StudentForm() {
 
             {/* Core Info Fields */}
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
-              <div className="sm:col-span-2">
+              <div>
                 <label className="block text-xs font-medium text-gray-700">
                   Full Student Name *
                 </label>
@@ -235,6 +246,18 @@ export function StudentForm() {
                     {form.formState.errors.name.message}
                   </p>
                 )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700">
+                  Roll Number (Optional, Unique)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. ROLL-101"
+                  {...form.register('roll_number')}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+                />
               </div>
 
               <div>

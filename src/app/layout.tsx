@@ -7,7 +7,14 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Aviora Finance & Fee Management',
-  description: 'Finance and Fee Management System',
+  description: 'Finance and Fee Management System for Aviora Aviation Academy',
+  icons: {
+    icon: [
+      { url: '/aviora-logo.png', type: 'image/png' },
+    ],
+    shortcut: '/aviora-logo.png',
+    apple: '/aviora-logo.png',
+  },
 }
 
 export default function RootLayout({

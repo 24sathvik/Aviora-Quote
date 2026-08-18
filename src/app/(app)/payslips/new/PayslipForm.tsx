@@ -400,9 +400,6 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
                 <div className="text-2xl font-extrabold font-mono text-white">
                   {formatCurrency(totals.netPay)}
                 </div>
-                <span className="text-2xs text-gray-300 block">
-                  Frozen snapshot copy generated authoritatively by DB RPC
-                </span>
               </div>
             </div>
 

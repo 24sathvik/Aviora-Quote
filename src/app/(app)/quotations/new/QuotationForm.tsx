@@ -65,6 +65,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
 
   const [quoteDate, setQuoteDate] = useState(initialQuotation?.quote_date || DEFAULT_DATES.today)
   const [validUntil, setValidUntil] = useState(initialQuotation?.valid_until || DEFAULT_DATES.valid)
+  const [manualQuoteNo, setManualQuoteNo] = useState<string>('')
 
   // Line items state
   const [items, setItems] = useState<FormLineItem[]>(
@@ -101,7 +102,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
-        .select('id, name, admission_no, phone, email')
+        .select('id, name, admission_no, roll_number, phone, email')
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as Student[]
@@ -200,17 +201,26 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
       let quoteNo = initialQuotation?.quote_no
 
       if (!isEditing) {
-        // 2. Generate sequential quotation number via Phase 4 engine
-        quoteNo = await generateQuotationNumber(supabase)
+        if (manualQuoteNo.trim()) {
+          const digitsOnly = manualQuoteNo.trim().replace(/\D/g, '')
+          if (!digitsOnly || parseInt(digitsOnly, 10) <= 0) {
+            throw new Error('Manual quotation number must be a positive whole number')
+          }
+          const num = parseInt(digitsOnly, 10)
+          quoteNo = `AV/QT/${String(num).padStart(5, '0')}`
+        } else {
+          // 2. Generate sequential quotation number via Phase 4 engine
+          quoteNo = await generateQuotationNumber(supabase)
+        }
 
         const { data: newQuote, error: insertError } = await supabase
           .from('quotations')
           .insert({
             quote_no: quoteNo,
             student_id: recipientMode === 'student' ? studentId : null,
-            lead_name: recipientMode === 'lead' ? leadName.trim() : null,
-            lead_phone: recipientMode === 'lead' ? leadPhone.trim() : null,
-            lead_email: recipientMode === 'lead' ? leadEmail.trim() : null,
+            lead_name: recipientMode === 'lead' ? leadName.trim() : (studentsList?.find((s) => s.id === studentId)?.name || null),
+            lead_phone: recipientMode === 'lead' ? leadPhone.trim() : (studentsList?.find((s) => s.id === studentId)?.phone || null),
+            lead_email: recipientMode === 'lead' ? leadEmail.trim() : (studentsList?.find((s) => s.id === studentId)?.email || null),
             quote_date: quoteDate,
             valid_until: validUntil || null,
             status,
@@ -224,8 +234,31 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
           .select('id, quote_no')
           .single()
 
-        if (insertError) throw insertError
+        if (insertError) {
+          if (
+            insertError.code === '23505' ||
+            insertError.message?.toLowerCase().includes('quote_no') ||
+            insertError.message?.toLowerCase().includes('unique')
+          ) {
+            throw new Error(`Quotation number ${quoteNo} is already in use`)
+          }
+          throw insertError
+        }
+
         quotationId = newQuote.id
+
+        // Resync sequence if manual quote number is provided
+        if (manualQuoteNo.trim()) {
+          const digitsOnly = manualQuoteNo.trim().replace(/\D/g, '')
+          const parsedNum = parseInt(digitsOnly, 10)
+          if (!isNaN(parsedNum) && parsedNum > 0) {
+            await supabase.rpc('resync_numbering_sequence', {
+              p_doc_type: 'QT',
+              p_fy_label: 'GLOBAL',
+              p_new_last_number: parsedNum,
+            })
+          }
+        }
       } else {
         // Update existing quotation
         const { error: updateError } = await supabase
@@ -437,7 +470,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-100">
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
@@ -463,6 +496,33 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
                 />
               </div>
+
+              {!isEditing && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Quotation Number (Optional)
+                  </label>
+                  <div className="flex items-center rounded-lg border border-gray-300 bg-gray-50 focus-within:ring-1 focus-within:ring-accent focus-within:border-accent overflow-hidden shadow-2xs">
+                    <span className="px-3 py-2 text-xs font-mono font-bold text-gray-600 bg-gray-100 border-r border-gray-200 select-none shrink-0">
+                      AV/QT/
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="e.g. 321"
+                      value={manualQuoteNo}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '')
+                        setManualQuoteNo(val)
+                      }}
+                      className="w-full bg-white px-3 py-2 text-sm font-mono text-gray-900 focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-2xs text-gray-400 mt-1">
+                    Leave blank to auto-generate. Enter number only (e.g. 321 → AV/QT/00321).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

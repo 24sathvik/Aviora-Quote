@@ -47,6 +47,11 @@ export function ReportsClient() {
           due_date,
           grand_total,
           status,
+          student_name,
+          student_admission_no,
+          student_phone,
+          student_email,
+          course_name,
           students (
             id,
             admission_no,
@@ -112,7 +117,9 @@ export function ReportsClient() {
             phone
           ),
           invoices (
-            invoice_no
+            invoice_no,
+            student_name,
+            student_admission_no
           )
         `)
         .order('payment_date', { ascending: false })
@@ -138,6 +145,7 @@ export function ReportsClient() {
           invoice_date,
           grand_total,
           status,
+          course_name,
           enrollments (
             courses (
               id,
@@ -170,8 +178,8 @@ export function ReportsClient() {
       >()
 
       ;(rawInvoices || []).forEach((inv: any) => {
-        const courseName = (inv.enrollments as any)?.courses?.name || 'Unassigned Track'
-        const courseId = (inv.enrollments as any)?.courses?.id || 'unassigned'
+        const courseName = inv.course_name || (inv.enrollments as any)?.courses?.name || 'Unassigned Track'
+        const courseId = (inv.enrollments as any)?.courses?.id || courseName
 
         const bal = balancesMap.get(inv.id)
         const billed = Number(bal?.grand_total) || 0
@@ -226,10 +234,10 @@ export function ReportsClient() {
   const exportOutstandingCSV = () => {
     const headers = ['Student ID', 'Student Name', 'Phone', 'Program', 'Invoice Ref', 'Grand Total', 'Amount Paid', 'Balance Due', 'Status']
     const rows = outstandingData.map((inv) => [
-      inv.students?.admission_no || '',
-      inv.students?.name || '',
-      inv.students?.phone || '',
-      inv.enrollments?.courses?.name || '',
+      inv.student_admission_no || inv.students?.admission_no || 'N/A',
+      inv.student_name || inv.students?.name || 'Historical Student',
+      inv.student_phone || inv.students?.phone || 'N/A',
+      inv.course_name || inv.enrollments?.courses?.name || 'Academic Program',
       inv.invoice_no,
       inv.invoice_balances?.grand_total || inv.grand_total,
       inv.invoice_balances?.amount_paid || 0,
@@ -244,8 +252,8 @@ export function ReportsClient() {
     const rows = collectionsData.map((p: any) => [
       p.receipt_no,
       p.payment_date,
-      p.students?.admission_no || '',
-      p.students?.name || '',
+      p.student_admission_no || p.students?.admission_no || p.invoices?.student_admission_no || 'N/A',
+      p.student_name || p.students?.name || p.invoices?.student_name || 'Historical Student',
       p.invoices?.invoice_no || '',
       p.payment_mode ? p.payment_mode.replace('_', ' ').toUpperCase() : 'BANK TRANSFER',
       p.reference_no || 'Direct',
@@ -279,20 +287,20 @@ export function ReportsClient() {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Financial & Audit Reports Hub
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Exportable ledger reports, outstanding balances, collections history, and payroll registers.
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* 1. Page Heading & Subtitle */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+          Financial &amp; Audit Reports Hub
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Exportable ledger reports, outstanding balances, collections history, and payroll registers.
+        </p>
+      </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-gray-200 shadow-2xs overflow-x-auto">
+      {/* 2. Tab Navigation Bar (Placed BETWEEN Heading and Report Content Card) */}
+      <div className="border-b border-gray-200 pb-2">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0 py-1">
           {[
             { id: 'outstanding', label: 'Outstanding Fees' },
             { id: 'collections', label: 'Collections History' },
@@ -302,10 +310,10 @@ export function ReportsClient() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as ReportTab)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                 activeTab === tab.id
-                  ? 'bg-navy-800 text-white shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                  ? 'bg-navy-800 text-white shadow-xs ring-2 ring-navy-800/20'
+                  : 'bg-white text-gray-600 hover:text-gray-900 border border-gray-200 hover:bg-gray-50'
               }`}
             >
               {tab.label}
@@ -355,6 +363,8 @@ export function ReportsClient() {
           )}
         </div>
       )}
+
+      {/* 3. Report Content Cards */}
 
       {/* Tab 1: Outstanding Fees Report */}
       {activeTab === 'outstanding' && (
@@ -407,20 +417,22 @@ export function ReportsClient() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {outstandingData.map((inv, idx) => {
-                    const student = inv.students
-                    const course = inv.enrollments?.courses
+                    const studentName = inv.student_name || inv.students?.name || 'Historical Student'
+                    const admissionNo = inv.student_admission_no || inv.students?.admission_no || 'N/A'
+                    const phone = inv.student_phone || inv.students?.phone || 'N/A'
+                    const courseName = inv.course_name || inv.enrollments?.courses?.name || 'Academic Program'
                     const balances = inv.invoice_balances
 
                     return (
                       <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
                         <td className="px-6 py-3.5 font-mono font-bold text-navy-800">
-                          {student?.admission_no}
+                          {admissionNo}
                         </td>
                         <td className="px-6 py-3.5 font-semibold text-gray-900">
-                          {student?.name}
+                          {studentName}
                         </td>
-                        <td className="px-6 py-3.5 text-gray-600">{student?.phone || 'N/A'}</td>
-                        <td className="px-6 py-3.5 text-gray-600">{course?.name}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{phone}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{courseName}</td>
                         <td className="px-6 py-3.5 font-mono text-navy-700">{inv.invoice_no}</td>
                         <td className="px-6 py-3.5 text-right font-mono font-semibold text-gray-900">
                           {formatCurrency(balances?.grand_total || inv.grand_total)}
@@ -451,7 +463,7 @@ export function ReportsClient() {
             <div>
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-600" />
-                Fee Realization & Collections Register
+                Fee Realization &amp; Collections Register
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 Realized student payments, bank transactions, and generated receipts
@@ -492,21 +504,24 @@ export function ReportsClient() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {collectionsData.map((p: any, idx) => (
-                    <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
-                      <td className="px-6 py-3.5 font-mono font-bold text-navy-800">{p.receipt_no}</td>
-                      <td className="px-6 py-3.5 text-gray-600">{p.payment_date}</td>
-                      <td className="px-6 py-3.5 font-semibold text-gray-900">{p.students?.name}</td>
-                      <td className="px-6 py-3.5 font-mono text-navy-700">{p.invoices?.invoice_no}</td>
-                      <td className="px-6 py-3.5 uppercase font-semibold text-emerald-800">
-                        {p.payment_mode ? p.payment_mode.replace('_', ' ') : 'BANK'}
-                      </td>
-                      <td className="px-6 py-3.5 font-mono text-gray-500">{p.reference_no || 'Direct'}</td>
-                      <td className="px-6 py-3.5 text-right font-mono font-bold text-emerald-700">
-                        {formatCurrency(p.amount)}
-                      </td>
-                    </tr>
-                  ))}
+                  {collectionsData.map((p: any, idx) => {
+                    const studentName = p.student_name || p.students?.name || p.invoices?.student_name || 'Historical Student'
+                    return (
+                      <tr key={idx} className="hover:bg-gray-50/60 transition-colors">
+                        <td className="px-6 py-3.5 font-mono font-bold text-navy-800">{p.receipt_no}</td>
+                        <td className="px-6 py-3.5 text-gray-600">{p.payment_date}</td>
+                        <td className="px-6 py-3.5 font-semibold text-gray-900">{studentName}</td>
+                        <td className="px-6 py-3.5 font-mono text-navy-700">{p.invoices?.invoice_no}</td>
+                        <td className="px-6 py-3.5 uppercase font-semibold text-emerald-800">
+                          {p.payment_mode ? p.payment_mode.replace('_', ' ') : 'BANK'}
+                        </td>
+                        <td className="px-6 py-3.5 font-mono text-gray-500">{p.reference_no || 'Direct'}</td>
+                        <td className="px-6 py-3.5 text-right font-mono font-bold text-emerald-700">
+                          {formatCurrency(p.amount)}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -592,7 +607,7 @@ export function ReportsClient() {
             <div>
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
                 <Banknote className="w-4 h-4 text-navy-700" />
-                Faculty Payroll & Remuneration Audit Register
+                Faculty Payroll &amp; Remuneration Audit Register
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
                 Monthly gross earnings, statutory deductions, and net salary disbursements

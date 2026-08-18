@@ -31,14 +31,14 @@ const styles = StyleSheet.create({
   },
   docTitle: {
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
   docNumber: {
     color: '#f8fafc',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 11,
   },
   metaGrid: {
@@ -56,7 +56,7 @@ const styles = StyleSheet.create({
   },
   metaHeading: {
     fontSize: 8.5,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
     textTransform: 'uppercase',
     marginBottom: 4,
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
   metaValue: {
     width: '58%',
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     color: '#0f172a',
   },
   twoColTable: {
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
   tableHeader: {
     backgroundColor: '#0f172a',
     color: '#ffffff',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 8.5,
     padding: '6 8',
     textTransform: 'uppercase',
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: '6 8',
     backgroundColor: '#f1f5f9',
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     fontSize: 8.5,
   },
   netPayCard: {
@@ -127,14 +127,14 @@ const styles = StyleSheet.create({
   netPayLabel: {
     color: '#94a3b8',
     fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   netPayValue: {
     color: '#38bdf8',
     fontSize: 16,
-    fontFamily: 'Helvetica-Bold',
+    fontWeight: 'bold',
   },
 })
 
@@ -220,19 +220,19 @@ export function PayslipPdfDocument({ payslip, settings }: PayslipPdfDocumentProp
             <Text style={styles.tableHeader}>Gross Earnings</Text>
             <View style={styles.tableRow}>
               <Text style={{ color: '#475569' }}>Basic Pay</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              <Text style={{ fontWeight: 'bold' }}>
                 {formatCurrency(snap.basic || 0)}
               </Text>
             </View>
             <View style={[styles.tableRow, { backgroundColor: '#f8fafc' }]}>
               <Text style={{ color: '#475569' }}>House Rent Allowance (HRA)</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              <Text style={{ fontWeight: 'bold' }}>
                 {formatCurrency(snap.hra || 0)}
               </Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={{ color: '#475569' }}>Special / Other Allowances</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold' }}>
+              <Text style={{ fontWeight: 'bold' }}>
                 {formatCurrency(snap.other_allowances || 0)}
               </Text>
             </View>
@@ -251,25 +251,25 @@ export function PayslipPdfDocument({ payslip, settings }: PayslipPdfDocumentProp
             </Text>
             <View style={styles.tableRow}>
               <Text style={{ color: '#475569' }}>Provident Fund (PF)</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+              <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                 {formatCurrency(snap.pf_deduction || 0)}
               </Text>
             </View>
             <View style={[styles.tableRow, { backgroundColor: '#f8fafc' }]}>
               <Text style={{ color: '#475569' }}>Professional Tax (PT)</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+              <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                 {formatCurrency(snap.pt_deduction || 0)}
               </Text>
             </View>
             <View style={styles.tableRow}>
               <Text style={{ color: '#475569' }}>Income Tax (TDS)</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+              <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                 {formatCurrency(snap.tds_deduction || 0)}
               </Text>
             </View>
             <View style={[styles.tableRow, { backgroundColor: '#f8fafc' }]}>
               <Text style={{ color: '#475569' }}>Other Deductions</Text>
-              <Text style={{ fontFamily: 'Helvetica-Bold', color: '#b91c1c' }}>
+              <Text style={{ fontWeight: 'bold', color: '#b91c1c' }}>
                 {formatCurrency(snap.other_deductions || 0)}
               </Text>
             </View>

@@ -10,6 +10,7 @@ import { invalidateAfterInvoiceCreated } from '@/lib/rpc/invalidation'
 import { generateIdempotencyKey } from '@/lib/utils/idempotency'
 import { queryKeys } from '@/lib/query-keys'
 import { calculateInvoiceTotals } from '@/lib/invoices/calculations'
+import { getFinancialYearLabel } from '@/lib/numbering/financial-year'
 import { formatCurrency } from '@/lib/utils/currency'
 import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
@@ -88,6 +89,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
   const [dueDate, setDueDate] = useState(
     initialInvoice?.due_date || DEFAULT_INVOICE_DATES.due
   )
+  const [manualInvoiceNo, setManualInvoiceNo] = useState<string>('')
 
   // Line items state
   const [items, setItems] = useState<FormInvoiceLineItem[]>(
@@ -129,7 +131,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     queryFn: async () => {
       const { data, error } = await supabase
         .from('students')
-        .select('id, name, admission_no, phone, email')
+        .select('id, name, admission_no, roll_number, phone, email')
         .order('name', { ascending: true })
       if (error) throw error
       return (data || []) as Student[]
@@ -331,6 +333,18 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
         idempotencyKeyRef.current = generateIdempotencyKey()
       }
 
+      // Format manual invoice number if provided
+      let formattedManualInvoiceNo: string | null = null
+      if (manualInvoiceNo.trim()) {
+        const digitsOnly = manualInvoiceNo.trim().replace(/\D/g, '')
+        if (!digitsOnly || parseInt(digitsOnly, 10) <= 0) {
+          throw new Error('Manual invoice number must be a positive whole number')
+        }
+        const num = parseInt(digitsOnly, 10)
+        const fy = getFinancialYearLabel(invoiceDate)
+        formattedManualInvoiceNo = `AV/INV/${fy}/${String(num).padStart(5, '0')}`
+      }
+
       // Call authoritative create_invoice database RPC wrapper
       const result = await createInvoice({
         studentId,
@@ -351,6 +365,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
         notes: notes.trim() || null,
         saveAsDraft: status === 'draft',
         idempotencyKey: idempotencyKeyRef.current,
+        manualInvoiceNo: formattedManualInvoiceNo,
       })
 
       return result
@@ -542,7 +557,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-gray-100">
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
                   Invoice Date *
@@ -568,6 +583,33 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
                 />
               </div>
+
+              {!isEditing && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Invoice Number (Optional)
+                  </label>
+                  <div className="flex items-center rounded-lg border border-gray-300 bg-gray-50 focus-within:ring-1 focus-within:ring-accent focus-within:border-accent overflow-hidden shadow-2xs">
+                    <span className="px-3 py-2 text-xs font-mono font-bold text-gray-600 bg-gray-100 border-r border-gray-200 select-none shrink-0">
+                      AV/INV/{getFinancialYearLabel(invoiceDate)}/
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="e.g. 321"
+                      value={manualInvoiceNo}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '')
+                        setManualInvoiceNo(val)
+                      }}
+                      className="w-full bg-white px-3 py-2 text-sm font-mono text-gray-900 focus:outline-none"
+                    />
+                  </div>
+                  <p className="text-2xs text-gray-400 mt-1">
+                    Leave blank to auto-generate. Enter number only (e.g. 321 → AV/INV/{getFinancialYearLabel(invoiceDate)}/00321).
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

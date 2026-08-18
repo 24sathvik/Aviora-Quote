@@ -119,6 +119,7 @@ export function StudentProfile() {
 
       const payload: Partial<Student> = {
         name: updatedData.name,
+        roll_number: updatedData.roll_number && updatedData.roll_number.trim() ? updatedData.roll_number.trim() : null,
         phone: updatedData.phone,
         email: updatedData.email,
         dob: updatedData.dob,
@@ -135,7 +136,15 @@ export function StudentProfile() {
         .update(payload)
         .eq('id', studentId)
 
-      if (error) throw error
+      if (error) {
+        if (
+          error.message?.toLowerCase().includes('roll_number') ||
+          (error.code === '23505' && error.message?.toLowerCase().includes('roll'))
+        ) {
+          throw new Error('A student with this Roll Number already exists. Roll numbers must be unique.')
+        }
+        throw error
+      }
     },
     onMutate: async (updatedData) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.students.detail(studentId) })
@@ -275,7 +284,7 @@ export function StudentProfile() {
             <div className="shrink-0">
               {student.photo_url ? (
                 <img
-                  src={student.photo_url}
+                  src={student.updated_at ? `${student.photo_url}?v=${student.updated_at}` : student.photo_url}
                   alt={student.name}
                   className="w-24 h-24 rounded-full object-cover border-4 border-white shadow-md"
                 />
@@ -293,6 +302,11 @@ export function StudentProfile() {
                 <span className="font-mono text-xs bg-navy-50 text-navy-800 px-2.5 py-1 rounded-md font-semibold">
                   {student.admission_no}
                 </span>
+                {student.roll_number && (
+                  <span className="font-mono text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-md font-semibold">
+                    Roll: {student.roll_number}
+                  </span>
+                )}
                 <StatusBadge status={student.status as StatusType} />
               </div>
 
@@ -401,6 +415,7 @@ interface EditStudentModalProps {
 
 function EditStudentModal({ student, isSubmitting, onClose, onSubmit }: EditStudentModalProps) {
   const [name, setName] = useState(student.name)
+  const [rollNumber, setRollNumber] = useState(student.roll_number || '')
   const [phone, setPhone] = useState(student.phone)
   const [email, setEmail] = useState(student.email || '')
   const [dob, setDob] = useState(student.dob || '')
@@ -434,6 +449,7 @@ function EditStudentModal({ student, isSubmitting, onClose, onSubmit }: EditStud
     setError(null)
     onSubmit({
       name: name.trim(),
+      roll_number: rollNumber.trim() || null,
       phone: phone.trim(),
       email: email.trim() || null,
       dob: dob || null,
@@ -478,13 +494,24 @@ function EditStudentModal({ student, isSubmitting, onClose, onSubmit }: EditStud
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
+            <div>
               <label className="block text-xs font-medium text-gray-700">Full Name *</label>
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700">Roll Number (Optional, Unique)</label>
+              <input
+                type="text"
+                value={rollNumber}
+                onChange={(e) => setRollNumber(e.target.value)}
+                placeholder="e.g. ROLL-101"
                 className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-xs focus:ring-accent focus:border-accent"
               />
             </div>
