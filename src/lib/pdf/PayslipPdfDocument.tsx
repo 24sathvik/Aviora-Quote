@@ -215,7 +215,7 @@ export function PayslipPdfDocument({ payslip, settings }: PayslipPdfDocumentProp
           <View style={styles.twoColTable}>
             {/* Earnings Table (Left Column) */}
             <View style={styles.tableCol}>
-              <Text style={styles.tableHeader}>Gross Earnings</Text>
+              <Text style={[styles.tableHeader, { color: '#FFFFFF' }]}>Gross Earnings</Text>
               <View style={styles.tableRow}>
                 <Text style={{ color: pdfColors.navy }}>Basic Pay</Text>
                 <Text style={{ fontWeight: 'bold', color: pdfColors.navy }}>
@@ -246,7 +246,7 @@ export function PayslipPdfDocument({ payslip, settings }: PayslipPdfDocumentProp
 
             {/* Deductions Table (Right Column) */}
             <View style={styles.tableCol}>
-              <Text style={styles.tableHeader}>Statutory Deductions</Text>
+              <Text style={[styles.tableHeader, { color: '#FFFFFF' }]}>Statutory Deductions</Text>
               <View style={styles.tableRow}>
                 <Text style={{ color: pdfColors.navy }}>Provident Fund (PF)</Text>
                 <Text style={{ fontWeight: 'bold', color: pdfColors.redText }}>

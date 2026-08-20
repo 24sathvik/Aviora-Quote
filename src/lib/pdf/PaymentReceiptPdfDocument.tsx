@@ -63,8 +63,8 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     backgroundColor: pdfColors.bgCream,
   },
-  headerColParam: { width: '45%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColValue: { width: '55%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
+  headerColParam: { width: '45%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColValue: { width: '55%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
 
   colParam: { width: '45%', color: pdfColors.navy },
   colValue: { width: '55%', fontWeight: 'bold', color: pdfColors.navy },
@@ -199,8 +199,8 @@ export function PaymentReceiptPdfDocument({
           {/* Particulars Table */}
           <View style={styles.table}>
             <View style={styles.tableHeader}>
-              <Text style={styles.headerColParam}>Fee Particulars</Text>
-              <Text style={styles.headerColValue}>Transaction &amp; Settlement Details</Text>
+              <Text style={[styles.headerColParam, { color: '#FFFFFF' }]}>Fee Particulars</Text>
+              <Text style={[styles.headerColValue, { color: '#FFFFFF' }]}>Transaction &amp; Settlement Details</Text>
             </View>
 
             <View style={styles.tableRow}>

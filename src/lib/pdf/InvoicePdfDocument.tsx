@@ -35,10 +35,10 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     backgroundColor: pdfColors.bgCream,
   },
-  headerColDesc: { width: '55%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColQty: { width: '12%', textAlign: 'center', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColRate: { width: '16.5%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColTotal: { width: '16.5%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
+  headerColDesc: { width: '55%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColQty: { width: '12%', textAlign: 'center', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColRate: { width: '16.5%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColTotal: { width: '16.5%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
 
   colDesc: { width: '55%', color: pdfColors.navy },
   colQty: { width: '12%', textAlign: 'center', color: pdfColors.navy },
@@ -161,10 +161,10 @@ export function InvoicePdfDocument({ invoice, settings }: InvoicePdfDocumentProp
           {/* Itemized Line Items Table */}
           <View style={styles.table}>
             <View style={styles.tableHeader}>
-              <Text style={styles.headerColDesc}>Fee Head / Description</Text>
-              <Text style={styles.headerColQty}>Qty</Text>
-              <Text style={styles.headerColRate}>Unit Price</Text>
-              <Text style={styles.headerColTotal}>Amount</Text>
+              <Text style={[styles.headerColDesc, { color: '#FFFFFF' }]}>Fee Head / Description</Text>
+              <Text style={[styles.headerColQty, { color: '#FFFFFF' }]}>Qty</Text>
+              <Text style={[styles.headerColRate, { color: '#FFFFFF' }]}>Unit Price</Text>
+              <Text style={[styles.headerColTotal, { color: '#FFFFFF' }]}>Amount</Text>
             </View>
 
             {items.map((item, idx) => (

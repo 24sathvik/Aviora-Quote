@@ -35,11 +35,11 @@ const styles = StyleSheet.create({
     fontSize: 8.5,
     backgroundColor: pdfColors.bgCream,
   },
-  headerColDesc: { width: '46%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColQty: { width: '10%', textAlign: 'center', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColRate: { width: '16%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColDisc: { width: '12%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
-  headerColTotal: { width: '16%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5 },
+  headerColDesc: { width: '46%', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColQty: { width: '10%', textAlign: 'center', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColRate: { width: '16%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColDisc: { width: '12%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
+  headerColTotal: { width: '16%', textAlign: 'right', color: '#FFFFFF', fontWeight: 'bold', fontSize: 8.5, textTransform: 'uppercase' },
 
   colDesc: { width: '46%', color: pdfColors.navy },
   colQty: { width: '10%', textAlign: 'center', color: pdfColors.navy },
@@ -153,11 +153,11 @@ export function QuotationPdfDocument({ quotation, settings }: QuotationPdfDocume
           {/* Itemized Line Items Table */}
           <View style={styles.table}>
             <View style={styles.tableHeader}>
-              <Text style={styles.headerColDesc}>Course / Service Description</Text>
-              <Text style={styles.headerColQty}>Qty</Text>
-              <Text style={styles.headerColRate}>Unit Price</Text>
-              <Text style={styles.headerColDisc}>Disc</Text>
-              <Text style={styles.headerColTotal}>Line Total</Text>
+              <Text style={[styles.headerColDesc, { color: '#FFFFFF' }]}>Course / Service Description</Text>
+              <Text style={[styles.headerColQty, { color: '#FFFFFF' }]}>Qty</Text>
+              <Text style={[styles.headerColRate, { color: '#FFFFFF' }]}>Unit Price</Text>
+              <Text style={[styles.headerColDisc, { color: '#FFFFFF' }]}>Disc</Text>
+              <Text style={[styles.headerColTotal, { color: '#FFFFFF' }]}>Line Total</Text>
             </View>
 
             {items.map((item, idx) => (
