@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function NewStudentPage() {
   return (
-    <div className="max-w-4xl mx-auto py-4">
+    <div className="max-w-[1600px] w-full mx-auto py-2 sm:py-4">
       <StudentForm />
     </div>
   )

@@ -303,7 +303,7 @@ export function InvoiceDetail() {
               </span>
             </div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight mt-0.5">
-              {student?.name || 'Enrolled Student'}
+              {student?.name || invoice.student_name_snapshot || 'Enrolled Student'}
             </h1>
           </div>
         </div>
@@ -394,8 +394,26 @@ export function InvoiceDetail() {
                 Billed To (Student Information)
               </h3>
               <div className="space-y-1">
-                <p className="text-base font-bold text-gray-900">{student?.name}</p>
-                <p className="text-xs text-gray-600 font-mono">Admission No: {student?.admission_no}</p>
+                <div className="flex items-center gap-2">
+                  {student?.id ? (
+                    <Link
+                      href={`/students/${student.id}`}
+                      className="text-base font-bold text-navy-800 hover:text-navy-950 hover:underline"
+                    >
+                      {student?.name || invoice.student_name_snapshot || 'Enrolled Student'}
+                    </Link>
+                  ) : (
+                    <span className="text-base font-bold text-gray-900 flex items-center gap-2">
+                      {invoice.student_name_snapshot || 'Enrolled Student'}
+                      <span className="text-2xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 font-normal border border-gray-200">
+                        (Deleted Student)
+                      </span>
+                    </span>
+                  )}
+                </div>
+                {student?.admission_no && (
+                  <p className="text-xs text-gray-600 font-mono">Admission No: {student.admission_no}</p>
+                )}
                 {student?.phone && <p className="text-xs text-gray-600">Phone: {student.phone}</p>}
                 {student?.email && <p className="text-xs text-gray-600">Email: {student.email}</p>}
                 {student?.address && <p className="text-xs text-gray-500 mt-1">{student.address}</p>}
@@ -663,7 +681,7 @@ export function InvoiceDetail() {
                   <option value="bank_transfer">Bank Transfer (NEFT / RTGS / IMPS)</option>
                   <option value="upi">UPI (GPay / PhonePe / QR Transfer)</option>
                   <option value="cheque">Bank Demand Draft / Cheque</option>
-                  <option value="cash">Counter Cash Realization</option>
+                  <option value="cash">Cash Payment</option>
                 </select>
               </div>
 

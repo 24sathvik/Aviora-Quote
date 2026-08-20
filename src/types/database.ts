@@ -94,6 +94,7 @@ export interface Quotation {
   id: string
   quote_no: string
   student_id: string | null
+  student_name_snapshot?: string | null
   lead_name: string | null
   lead_phone: string | null
   lead_email: string | null
@@ -115,22 +116,28 @@ export interface Quotation {
 
 export interface CompanySettings {
   id: string
-  company_name: string
-  company_email: string | null
-  company_phone: string | null
-  company_address: string | null
-  company_website: string | null
-  gstin: string | null
-  pan: string | null
-  cin: string | null
-  bank_account_name: string | null
-  bank_account_number: string | null
-  bank_ifsc: string | null
-  bank_name: string | null
-  bank_branch: string | null
-  logo_url: string | null
-  signature_url: string | null
-  terms_and_conditions_text: string | null
+  name?: string | null
+  company_name?: string | null
+  address?: string | null
+  company_address?: string | null
+  phone?: string | null
+  company_phone?: string | null
+  company_email?: string | null
+  company_website?: string | null
+  gstin?: string | null
+  pan?: string | null
+  cin_number?: string | null
+  cin?: string | null
+  show_gst_on_documents?: boolean
+  show_cin_on_documents?: boolean
+  bank_account_name?: string | null
+  bank_account_number?: string | null
+  bank_ifsc?: string | null
+  bank_name?: string | null
+  bank_branch?: string | null
+  logo_url?: string | null
+  signature_url?: string | null
+  terms_and_conditions_text?: string | null
 }
 
 export type InvoiceStatus = 'draft' | 'sent' | 'cancelled'
@@ -153,6 +160,7 @@ export interface Payment {
   id: string
   invoice_id: string
   student_id: string | null
+  student_name_snapshot?: string | null
   receipt_no: string
   amount: number
   payment_date: string
@@ -185,6 +193,7 @@ export interface Invoice {
   invoice_no: string
   fy_label: string
   student_id: string | null
+  student_name_snapshot?: string | null
   enrollment_id: string | null
   course_term_id: string | null
   quotation_id: string | null

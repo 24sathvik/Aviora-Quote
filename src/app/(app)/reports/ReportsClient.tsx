@@ -235,7 +235,7 @@ export function ReportsClient() {
     const headers = ['Student ID', 'Student Name', 'Phone', 'Program', 'Invoice Ref', 'Grand Total', 'Amount Paid', 'Balance Due', 'Status']
     const rows = outstandingData.map((inv) => [
       inv.student_admission_no || inv.students?.admission_no || 'N/A',
-      inv.student_name || inv.students?.name || 'Historical Student',
+      inv.students?.name || inv.student_name_snapshot || inv.student_name || 'Historical Student',
       inv.student_phone || inv.students?.phone || 'N/A',
       inv.course_name || inv.enrollments?.courses?.name || 'Academic Program',
       inv.invoice_no,
@@ -253,7 +253,7 @@ export function ReportsClient() {
       p.receipt_no,
       p.payment_date,
       p.student_admission_no || p.students?.admission_no || p.invoices?.student_admission_no || 'N/A',
-      p.student_name || p.students?.name || p.invoices?.student_name || 'Historical Student',
+      p.students?.name || p.student_name_snapshot || p.student_name || p.invoices?.student_name_snapshot || 'Historical Student',
       p.invoices?.invoice_no || '',
       p.payment_mode ? p.payment_mode.replace('_', ' ').toUpperCase() : 'BANK TRANSFER',
       p.reference_no || 'Direct',
@@ -417,7 +417,8 @@ export function ReportsClient() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {outstandingData.map((inv, idx) => {
-                    const studentName = inv.student_name || inv.students?.name || 'Historical Student'
+                    const studentName =
+                      inv.students?.name || inv.student_name_snapshot || inv.student_name || 'Historical Student'
                     const admissionNo = inv.student_admission_no || inv.students?.admission_no || 'N/A'
                     const phone = inv.student_phone || inv.students?.phone || 'N/A'
                     const courseName = inv.course_name || inv.enrollments?.courses?.name || 'Academic Program'
@@ -463,10 +464,10 @@ export function ReportsClient() {
             <div>
               <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
                 <Receipt className="w-4 h-4 text-emerald-600" />
-                Fee Realization &amp; Collections Register
+                Fee Collections &amp; Payment Register
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Realized student payments, bank transactions, and generated receipts
+                Student fee payments, bank transactions, and generated receipts
               </p>
             </div>
 
@@ -539,7 +540,7 @@ export function ReportsClient() {
                 Course Program Financial Audit Report
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                Total term fees billed, collections realized, and net balances per academic program
+                Total term fees billed, payments collected, and net balances per academic program
               </p>
             </div>
 
@@ -566,7 +567,7 @@ export function ReportsClient() {
                     <th className="px-6 py-3">Course Program Track</th>
                     <th className="px-6 py-3 text-center">Active Invoices</th>
                     <th className="px-6 py-3 text-right">Total Billed</th>
-                    <th className="px-6 py-3 text-right">Total Realized</th>
+                    <th className="px-6 py-3 text-right">Total Collected</th>
                     <th className="px-6 py-3 text-right">Total Outstanding</th>
                     <th className="px-6 py-3 text-right">Collection Rate</th>
                   </tr>

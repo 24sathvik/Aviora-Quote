@@ -30,6 +30,12 @@ import {
   Info,
   Layers,
 } from 'lucide-react'
+import {
+  CompanyDetailsPanel,
+  CompanyDetailsState,
+  CompanyDetailsChangePayload,
+  saveCompanySettings,
+} from '@/components/shared/CompanyDetailsPanel'
 import type {
   Student,
   Enrollment,
@@ -124,6 +130,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     initialInvoice?.notes ||
       '1. Payment must reference the tax invoice number.\n2. Invoices overdue beyond 15 days may incur late fee adjustments.'
   )
+  const [companyDetails, setCompanyDetails] = useState<CompanyDetailsChangePayload | null>(null)
 
   // 1. Fetch active students via QueryKey registry
   const { data: studentsList, isLoading: loadingStudents } = useQuery({
@@ -220,6 +227,26 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     },
   })
 
+  // 4. Query terms that already have a non-cancelled invoice for the selected enrollment
+  const { data: invoicedTermIds = [] } = useQuery({
+    queryKey: ['invoices', 'invoicedTermIds', enrollmentId],
+    enabled: !!enrollmentId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('course_term_id')
+        .eq('enrollment_id', enrollmentId)
+        .neq('status', 'cancelled')
+        .not('course_term_id', 'is', null)
+
+      if (error) throw error
+      const ids = (data || [])
+        .map((i: any) => i.course_term_id)
+        .filter((id: string | null): id is string => !!id && (!isEditing || id !== initialInvoice?.course_term_id))
+      return ids
+    },
+  })
+
   // Selected enrollment and available course terms
   const selectedEnrollment = studentEnrollments?.find((e) => e.id === enrollmentId)
   const availableTerms = selectedEnrollment?.courses?.course_terms || []
@@ -255,7 +282,7 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
     }
   }
 
-  // Auto-populate enrollment and term structure upon student selection
+  // Auto-populate enrollment and term structure upon student selection, landing on next uninvoiced term
   useEffect(() => {
     if (studentEnrollments && studentEnrollments.length > 0 && !isEditing) {
       const targetEnr = enrollmentId
@@ -267,12 +294,18 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
       }
 
       const terms = targetEnr.courses?.course_terms || []
-      if (terms.length > 0 && !courseTermId) {
-        const targetTerm = terms.find((t) => t.term_no === targetEnr.current_term) || terms[0]
-        handleTermSelection(targetTerm.id, studentEnrollments)
+      if (terms.length > 0 && (!courseTermId || invoicedTermIds.includes(courseTermId))) {
+        const uninvoicedTerm =
+          terms.find((t) => !invoicedTermIds.includes(t.id) && t.term_no === targetEnr.current_term) ||
+          terms.find((t) => !invoicedTermIds.includes(t.id)) ||
+          terms[0]
+
+        if (uninvoicedTerm) {
+          handleTermSelection(uninvoicedTerm.id, studentEnrollments)
+        }
       }
     }
-  }, [studentEnrollments])
+  }, [studentEnrollments, enrollmentId, invoicedTermIds])
 
   // Live real-time preview calculations for instant UI feedback
   const totals = calculateInvoiceTotals(
@@ -331,6 +364,24 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
       // Generate idempotency key on first submission attempt if not already set
       if (!idempotencyKeyRef.current) {
         idempotencyKeyRef.current = generateIdempotencyKey()
+      }
+
+      // Save updated company & document settings ONLY if edited by user
+      if (companyDetails?.isDirty) {
+        try {
+          await saveCompanySettings(supabase, companyDetails.values)
+        } catch (csErr: any) {
+          console.warn('Company settings update warning:', {
+            message: csErr.message || csErr,
+            code: csErr.code,
+            details: csErr.details,
+            hint: csErr.hint,
+          })
+          toastError(
+            'Settings Save Notice',
+            'Invoice will be generated, but company default settings could not be updated.'
+          )
+        }
       }
 
       // Format manual invoice number if provided
@@ -538,11 +589,14 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
                   <option value="">
                     {!enrollmentId ? '-- Select program first --' : '-- Select term to bill --'}
                   </option>
-                  {availableTerms.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.term_label} ({formatCurrency(t.term_fee)})
-                    </option>
-                  ))}
+                  {availableTerms.map((t) => {
+                    const isAlreadyInvoiced = invoicedTermIds.includes(t.id)
+                    return (
+                      <option key={t.id} value={t.id} disabled={isAlreadyInvoiced}>
+                        {t.term_label} ({formatCurrency(t.term_fee)}){isAlreadyInvoiced ? ' — Already Invoiced' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
               </div>
 
@@ -730,6 +784,9 @@ export function InvoiceForm({ initialInvoice, prefillQuotationId }: InvoiceFormP
               className="w-full rounded-lg border border-gray-300 p-3 text-xs shadow-xs focus:ring-accent focus:border-accent"
             />
           </div>
+
+          {/* Card 4: Company & Document Details (Editable Panel) */}
+          <CompanyDetailsPanel onChange={setCompanyDetails} initialCollapsed={true} />
         </div>
 
         {/* Right Sidebar: Live Calculated Summary Panel */}

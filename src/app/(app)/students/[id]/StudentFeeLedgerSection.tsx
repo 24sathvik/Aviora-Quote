@@ -121,7 +121,7 @@ export function StudentFeeLedgerSection({ studentId }: StudentFeeLedgerSectionPr
             {formatCurrency(ledger.total_paid)}
           </div>
           <span className="text-2xs text-emerald-600">
-            {payments.length} {payments.length === 1 ? 'Receipt' : 'Receipts'} Realized
+            {payments.length} {payments.length === 1 ? 'Receipt' : 'Receipts'} Issued
           </span>
         </div>
 
@@ -254,13 +254,16 @@ export function StudentFeeLedgerSection({ studentId }: StudentFeeLedgerSectionPr
       <div className="space-y-3 pt-4 border-t border-gray-100">
         <h4 className="text-xs font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
           <Receipt className="w-4 h-4 text-emerald-700" />
-          Receipts & Realized Collections ({payments.length})
+          Receipts &amp; Payment Collections ({payments.length})
         </h4>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Student fee payments, bank transactions, and generated receipts
+        </p>
 
         {payments.length === 0 ? (
-          <div className="p-6 text-center bg-gray-50/60 rounded-xl border border-dashed border-gray-200 text-xs text-gray-500">
-            No payments have been realized for this student yet.
-          </div>
+          <p className="text-xs text-gray-400 italic py-4">
+            No payments have been received for this student yet.
+          </p>
         ) : (
           <div className="overflow-x-auto border border-gray-200 rounded-lg">
             <table className="w-full text-left text-xs">

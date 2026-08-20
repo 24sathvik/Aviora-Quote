@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   Users,
   Search,
@@ -36,6 +37,7 @@ export function StudentList() {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [courseFilter, setCourseFilter] = useState<string>('all')
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null)
@@ -63,11 +65,11 @@ export function StudentList() {
   }, [searchInput])
 
   // Server-side filtered and paginated query
-  const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.students.list({ page, search: debouncedSearch, status: statusFilter, course: courseFilter }),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.students.list({ page, pageSize, search: debouncedSearch, status: statusFilter, course: courseFilter }),
     queryFn: async () => {
-      const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
+      const from = page * pageSize
+      const to = from + pageSize - 1
 
       // If filtering by course, use inner join on enrollments
       const selectClause = courseFilter !== 'all' ? '*, enrollments!inner(course_id)' : '*'
@@ -86,7 +88,6 @@ export function StudentList() {
       }
 
       if (debouncedSearch) {
-        // Search by name, admission_no, phone, email, or roll_number
         query = query.or(
           `name.ilike.%${debouncedSearch}%,admission_no.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%,roll_number.ilike.%${debouncedSearch}%`
         )
@@ -390,41 +391,15 @@ export function StudentList() {
         )}
 
         {/* Server-Side Pagination Bar */}
-        <div className="bg-gray-50 px-6 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600">
-          <div>
-            Showing{' '}
-            <span className="font-semibold text-gray-900">
-              {totalCount === 0 ? 0 : page * PAGE_SIZE + 1}
-            </span>{' '}
-            to{' '}
-            <span className="font-semibold text-gray-900">
-              {Math.min((page + 1) * PAGE_SIZE, totalCount)}
-            </span>{' '}
-            of <span className="font-semibold text-gray-900">{totalCount}</span> student records
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={page === 0 || isLoading}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium shadow-2xs transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Previous
-            </button>
-            <span className="px-2 font-medium text-gray-800">
-              Page {totalPages === 0 ? 1 : page + 1} of {Math.max(1, totalPages)}
-            </span>
-            <button
-              onClick={() => setPage((p) => (p + 1 < totalPages ? p + 1 : p))}
-              disabled={page + 1 >= totalPages || isPlaceholderData || isLoading}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium shadow-2xs transition-colors"
-            >
-              Next
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+        <Pagination
+          totalCount={totalCount}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="Students"
+          isLoading={isLoading}
+        />
       </div>
 
       {/* Delete Confirmation Modal */}

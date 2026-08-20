@@ -2,12 +2,13 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   GraduationCap,
   Search,
@@ -17,29 +18,47 @@ import {
   Eye,
   Edit2,
   Trash2,
-  AlertTriangle,
-  Loader2,
+  ChevronLeft,
+  ChevronRight,
   BookOpen,
   ArrowRight,
   X,
+  Loader2,
 } from 'lucide-react'
 import type { Course, CourseTerm } from '@/types/database'
+
+const PAGE_SIZE = 12
 
 export function CourseList() {
   const supabase = createClient()
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
 
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingCourse, setEditingCourse] = useState<Course | null>(null)
   const [deletingCourse, setDeletingCourse] = useState<Course | null>(null)
 
-  // Fetch courses with their terms to compute totals dynamically
-  const { data: courses, isLoading } = useQuery({
-    queryKey: queryKeys.courses.all,
+  // Debounce search input (~300ms)
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput.trim())
+      setPage(0)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Server-side paginated & filtered courses query
+  const { data, isLoading } = useQuery({
+    queryKey: ['courses', 'list', { page, pageSize, search: debouncedSearch }],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const from = page * pageSize
+      const to = from + pageSize - 1
+
+      let query = supabase
         .from('courses')
         .select(`
           id,
@@ -53,12 +72,17 @@ export function CourseList() {
             term_label,
             term_fee
           )
-        `)
+        `, { count: 'exact' })
         .order('created_at', { ascending: false })
 
+      if (debouncedSearch) {
+        query = query.or(`name.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%`)
+      }
+
+      const { data: rawData, count, error } = await query.range(from, to)
       if (error) throw error
 
-      return ((data || []) as unknown as Array<Course & { course_terms: CourseTerm[] }>).map((course) => {
+      const coursesList = ((rawData || []) as unknown as Array<Course & { course_terms: CourseTerm[] }>).map((course) => {
         const terms = course.course_terms || []
         const total_fee = terms.reduce(
           (sum: number, t: CourseTerm) => sum + (Number(t.term_fee) || 0),
@@ -71,7 +95,13 @@ export function CourseList() {
           total_fee,
         } as Course
       })
+
+      return {
+        courses: coursesList,
+        totalCount: count || 0,
+      }
     },
+    placeholderData: keepPreviousData,
   })
 
   // Add / Edit Course Mutation (Optimistic)
@@ -171,11 +201,9 @@ export function CourseList() {
     },
   })
 
-  const filteredCourses = (courses || []).filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.description && c.description.toLowerCase().includes(search.toLowerCase()))
-  )
+  const coursesList = data?.courses || []
+  const totalCount = data?.totalCount || 0
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -183,7 +211,7 @@ export function CourseList() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Courses & Fee Structures
+            Courses &amp; Fee Structures
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Manage academic programs, duration, terms, and term-wise fee configurations.
@@ -209,19 +237,19 @@ export function CourseList() {
           <input
             type="text"
             placeholder="Search courses by name or description..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
           />
         </div>
         <div className="text-xs font-medium text-gray-500 px-2 py-1 bg-gray-100 rounded-md">
-          {filteredCourses.length} {filteredCourses.length === 1 ? 'Course' : 'Courses'}
+          {totalCount} {totalCount === 1 ? 'Course' : 'Courses'} Total
         </div>
       </div>
 
       {/* Courses Grid / Table */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div key={i} className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
               <Skeleton className="h-6 w-3/4" />
@@ -234,18 +262,18 @@ export function CourseList() {
             </div>
           ))}
         </div>
-      ) : filteredCourses.length === 0 ? (
+      ) : coursesList.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center shadow-xs">
           <div className="mx-auto w-12 h-12 rounded-full bg-navy-50 flex items-center justify-center text-navy-700 mb-4">
             <GraduationCap className="w-6 h-6" />
           </div>
           <h3 className="text-base font-semibold text-gray-900">No courses found</h3>
           <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
-            {search
+            {searchInput
               ? 'No courses matched your search criteria. Try a different query.'
               : 'Get started by creating your first course and configuring its term-wise fee structure.'}
           </p>
-          {!search && (
+          {!searchInput && (
             <button
               onClick={() => {
                 setEditingCourse(null)
@@ -259,87 +287,100 @@ export function CourseList() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCourses.map((course) => (
-            <div
-              key={course.id}
-              className="bg-white rounded-xl border border-gray-200 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between overflow-hidden"
-            >
-              <div className="p-6">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-navy-50 flex items-center justify-center text-navy-700 shrink-0">
-                      <BookOpen className="w-5 h-5" />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {coursesList.map((course) => (
+              <div
+                key={course.id}
+                className="bg-white rounded-xl border border-gray-200 shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between overflow-hidden"
+              >
+                <div className="p-6">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-navy-50 flex items-center justify-center text-navy-700 shrink-0">
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-semibold text-gray-900 line-clamp-1">
+                          {course.name}
+                        </h3>
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-500 mt-0.5">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {course.duration_terms}{' '}
+                          {course.duration_terms === 1 ? 'Term Duration' : 'Terms Duration'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => {
+                          setEditingCourse(course)
+                          setIsAddModalOpen(true)
+                        }}
+                        title="Edit Course"
+                        className="p-1.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setDeletingCourse(course)}
+                        title="Delete Course"
+                        className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {course.description && (
+                    <p className="text-xs text-gray-600 mt-3 line-clamp-2">
+                      {course.description}
+                    </p>
+                  )}
+
+                  <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-xs text-gray-500 block">Terms Configured</span>
+                      <span className="text-sm font-semibold text-gray-900 mt-0.5 block">
+                        {course.terms_count || 0} of {course.duration_terms}
+                      </span>
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-gray-900 line-clamp-1">
-                        {course.name}
-                      </h3>
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-500 mt-0.5">
-                        <Calendar className="w-3.5 h-3.5" />
-                        {course.duration_terms}{' '}
-                        {course.duration_terms === 1 ? 'Term Duration' : 'Terms Duration'}
+                      <span className="text-xs text-gray-500 block">Total Course Fee</span>
+                      <span className="text-sm font-bold text-navy-900 mt-0.5 block">
+                        {formatCurrency(course.total_fee || 0)}
                       </span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => {
-                        setEditingCourse(course)
-                        setIsAddModalOpen(true)
-                      }}
-                      title="Edit Course"
-                      className="p-1.5 text-gray-400 hover:text-navy-700 hover:bg-gray-100 rounded-md transition-colors cursor-pointer"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setDeletingCourse(course)}
-                      title="Delete Course"
-                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
                 </div>
 
-                {course.description && (
-                  <p className="text-xs text-gray-600 mt-3 line-clamp-2">
-                    {course.description}
-                  </p>
-                )}
-
-                <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-gray-500 block">Terms Configured</span>
-                    <span className="text-sm font-semibold text-gray-900 mt-0.5 block">
-                      {course.terms_count || 0} of {course.duration_terms}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-xs text-gray-500 block">Total Course Fee</span>
-                    <span className="text-sm font-bold text-navy-900 mt-0.5 block">
-                      {formatCurrency(course.total_fee || 0)}
-                    </span>
-                  </div>
+                <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex items-center justify-between">
+                  <span className="text-xs text-gray-500">
+                    {course.terms_count === 0 ? 'No fee structure set' : `${course.terms_count} terms defined`}
+                  </span>
+                  <Link
+                    href={`/courses/${course.id}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
+                  >
+                    Configure Terms
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
               </div>
+            ))}
+          </div>
 
-              <div className="bg-gray-50 px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-                <span className="text-xs text-gray-500">
-                  {course.terms_count === 0 ? 'No fee structure set' : `${course.terms_count} terms defined`}
-                </span>
-                <Link
-                  href={`/courses/${course.id}`}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:text-accent-hover transition-colors"
-                >
-                  Configure Terms
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
-            </div>
-          ))}
+          {/* Pagination Controls Bar */}
+          <Pagination
+            totalCount={totalCount}
+            currentPage={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="Courses"
+            isLoading={isLoading}
+          />
         </div>
       )}
 

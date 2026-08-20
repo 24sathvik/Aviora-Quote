@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { Modal } from '@/components/ui/Modal'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   Shield,
   UserPlus,
@@ -23,7 +24,11 @@ import {
   Trash2,
   UserCheck,
   UserX,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 export function AdminUsersClient() {
   const router = useRouter()
@@ -45,6 +50,9 @@ export function AdminUsersClient() {
   const [deleteUser, setDeleteUser] = useState<any | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
+
   // 1. Fetch current logged-in user profile to verify super_admin role
   const { data: currentUserProfile, isLoading: loadingProfile } = useQuery({
     queryKey: queryKeys.userProfile(),
@@ -59,20 +67,31 @@ export function AdminUsersClient() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // 2. Fetch list of all registered users from public.users
-  const { data: usersList = [], isLoading: loadingUsers } = useQuery({
-    queryKey: ['admin-users-list'],
+  // 2. Fetch list of registered users from public.users with server-side pagination
+  const { data: usersData, isLoading: loadingUsers } = useQuery({
+    queryKey: ['admin-users-list', { page, pageSize }],
     enabled: currentUserProfile?.role === 'super_admin',
     queryFn: async () => {
-      const { data, error } = await supabase
+      const from = page * pageSize
+      const to = from + pageSize - 1
+
+      const { data, count, error } = await supabase
         .from('users')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
+        .range(from, to)
 
       if (error) throw error
-      return data || []
+      return {
+        users: data || [],
+        totalCount: count || 0,
+      }
     },
   })
+
+  const usersList = usersData?.users || []
+  const totalCount = usersData?.totalCount || 0
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   // 3. Mutation to call protected Server Route Handler (/api/admin/create-user)
   const createAdminMutation = useMutation({
@@ -302,6 +321,17 @@ export function AdminUsersClient() {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Bar */}
+          <Pagination
+            totalCount={totalCount}
+            currentPage={page}
+            pageSize={pageSize}
+            onPageChange={setPage}
+            onPageSizeChange={setPageSize}
+            itemLabel="Admin Users"
+            isLoading={loadingUsers}
+          />
         </div>
 
         {/* Right Column (1 Col): Provision New Admin Form */}

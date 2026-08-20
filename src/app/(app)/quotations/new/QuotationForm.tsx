@@ -23,6 +23,12 @@ import {
   Receipt,
   GraduationCap,
 } from 'lucide-react'
+import {
+  CompanyDetailsPanel,
+  CompanyDetailsState,
+  CompanyDetailsChangePayload,
+  saveCompanySettings,
+} from '@/components/shared/CompanyDetailsPanel'
 import type { Student, Course, CourseTerm, Quotation } from '@/types/database'
 
 function getInitialDates() {
@@ -66,6 +72,7 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
   const [quoteDate, setQuoteDate] = useState(initialQuotation?.quote_date || DEFAULT_DATES.today)
   const [validUntil, setValidUntil] = useState(initialQuotation?.valid_until || DEFAULT_DATES.valid)
   const [manualQuoteNo, setManualQuoteNo] = useState<string>('')
+  const [companyDetails, setCompanyDetails] = useState<CompanyDetailsChangePayload | null>(null)
 
   // Line items state
   const [items, setItems] = useState<FormLineItem[]>(
@@ -188,6 +195,24 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
       }
       if (items.some((it) => !it.description.trim())) {
         throw new Error('All line items must have a description')
+      }
+
+      // Save updated company & document settings ONLY if edited by user
+      if (companyDetails?.isDirty) {
+        try {
+          await saveCompanySettings(supabase, companyDetails.values)
+        } catch (csErr: any) {
+          console.warn('Company settings update warning:', {
+            message: csErr.message || csErr,
+            code: csErr.code,
+            details: csErr.details,
+            hint: csErr.hint,
+          })
+          toastError(
+            'Settings Save Notice',
+            'Quotation will be generated, but company default settings could not be updated.'
+          )
+        }
       }
 
       // 1. Authoritative server-side calculation
@@ -700,6 +725,9 @@ export function QuotationForm({ initialQuotation }: QuotationFormProps) {
               className="w-full rounded-lg border border-gray-300 p-3 text-xs shadow-xs focus:ring-accent focus:border-accent"
             />
           </div>
+
+          {/* Card 4: Company & Document Details (Editable Panel) */}
+          <CompanyDetailsPanel onChange={setCompanyDetails} initialCollapsed={true} />
         </div>
 
         {/* Right Sidebar: Live Real-Time Calculated Summary */}

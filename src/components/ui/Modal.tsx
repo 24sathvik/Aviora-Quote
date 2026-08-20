@@ -29,7 +29,7 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-gray-200 space-y-4">
+      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-2xl border border-gray-200 space-y-4">
         <div className="flex items-center justify-between border-b border-gray-100 pb-3">
           {title && <h3 className="text-base font-bold text-gray-900">{title}</h3>}
           <button

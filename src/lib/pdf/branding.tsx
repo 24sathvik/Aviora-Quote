@@ -1,10 +1,10 @@
 import React from 'react'
-import { Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer'
+import { Text, View, StyleSheet, Image, Font, Svg, Polygon } from '@react-pdf/renderer'
 import path from 'path'
+import fs from 'fs'
 import type { CompanySettings } from '@/types/database'
 
 // Register Noto Sans locally so ₹ (U+20B9) renders correctly in all PDFs.
-// The font files are bundled inside /public/fonts — no external CDN dependency.
 Font.register({
   family: 'NotoSans',
   fonts: [
@@ -19,227 +19,375 @@ Font.register({
   ],
 })
 
+// Visual Design Tokens matching attached reference image
+export const pdfColors = {
+  bgCream: '#FAF6EF',       // Warm cream/ivory background tone
+  navy: '#0A1E3F',          // Deep navy primary tone
+  gold: '#C5A059',          // Rich gold/tan accent tone
+  goldLight: '#F1E7DA',     // Light tan box fill for bank remittance
+  goldBorder: '#C5A059',    // Rounded info box gold border
+  redText: '#991B1B',       // Maroon/red for balance due highlight
+  textDark: '#0A1E3F',      // Main dark navy body text
+  textMuted: '#64748B',     // Muted gray labels
+  borderGray: '#E2E8F0',    // Table row borders
+  lineDivider: '#B0B0B0',   // Main horizontal dividers
+}
+
 export const pdfStyles = StyleSheet.create({
   page: {
-    padding: 36,
     fontFamily: 'NotoSans',
-    fontSize: 9,
-    color: '#1e293b',
-    backgroundColor: '#ffffff',
+    fontSize: 8.5,
+    color: pdfColors.textDark,
+    backgroundColor: pdfColors.bgCream,
+    padding: 0,
+    flexDirection: 'column',
+    minHeight: '100%',
+  },
+  topEdgeBar: {
+    height: 6,
+    backgroundColor: pdfColors.gold,
+    width: '100%',
+  },
+  bottomEdgeBar: {
+    height: 6,
+    backgroundColor: pdfColors.navy,
+    width: '100%',
+  },
+  bodyContent: {
+    paddingHorizontal: 36,
+    paddingTop: 20,
+    paddingBottom: 16,
+    flex: 1,
   },
   headerContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingBottom: 16,
-    borderBottomWidth: 1.5,
-    borderBottomColor: '#0f172a',
-    marginBottom: 16,
+    alignItems: 'center',
+    paddingBottom: 12,
+    marginBottom: 10,
+  },
+  headerLeft: {
+    width: '74%',
+  },
+  headerRight: {
+    width: '24%',
+    alignItems: 'flex-end',
   },
   companyLogo: {
-    width: 64,
-    height: 64,
+    width: 115,
+    height: 55,
     objectFit: 'contain',
-    borderRadius: 6,
   },
-  companyInfo: {
-    alignItems: 'flex-end',
-    maxWidth: '55%',
-  },
-  companyName: {
-    fontSize: 14,
+  companyAddress: {
+    fontSize: 9.5,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: pdfColors.navy,
+    lineHeight: 1.35,
+  },
+  taxLine: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: pdfColors.navy,
+    marginTop: 3,
+  },
+  headerDivider: {
+    borderBottomWidth: 0.8,
+    borderBottomColor: pdfColors.lineDivider,
+    marginBottom: 14,
+  },
+  docTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: pdfColors.navy,
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  ribbonContainer: {
+    flexDirection: 'row',
+    height: 22,
+    marginBottom: 14,
+    width: '100%',
+  },
+  ribbonLeft: {
+    backgroundColor: pdfColors.gold,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ribbonLeftText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 8.5,
+    letterSpacing: 0.5,
+  },
+  ribbonRight: {
+    backgroundColor: pdfColors.navy,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    flex: 1,
+  },
+  ribbonRightText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 8.5,
+    letterSpacing: 0.5,
+  },
+  infoBoxesGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  infoBoxCard: {
+    width: '48.5%',
+    borderWidth: 1,
+    borderColor: pdfColors.goldBorder,
+    borderRadius: 8,
+    padding: 10,
+    backgroundColor: pdfColors.bgCream,
+  },
+  infoBoxTitle: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: pdfColors.navy,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  infoBoxRow: {
+    flexDirection: 'row',
     marginBottom: 3,
   },
-  companyMeta: {
+  infoBoxLabel: {
+    width: '40%',
     fontSize: 8,
-    color: '#64748b',
-    lineHeight: 1.3,
-    textAlign: 'right',
+    color: pdfColors.textMuted,
   },
-  taxIdsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  taxBadge: {
-    fontSize: 7.5,
+  infoBoxValue: {
+    width: '60%',
+    fontSize: 8,
     fontWeight: 'bold',
-    color: '#0f172a',
-  },
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#0f172a',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 6,
+    color: pdfColors.navy,
   },
   bankBlock: {
-    backgroundColor: '#f8fafc',
-    padding: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    marginTop: 14,
-    width: '55%',
-  },
-  bankRow: {
-    flexDirection: 'row',
-    marginBottom: 2.5,
-  },
-  bankLabel: {
-    width: '40%',
-    color: '#64748b',
-    fontSize: 8,
-  },
-  bankValue: {
-    width: '60%',
-    fontWeight: 'bold',
-    color: '#0f172a',
-    fontSize: 8,
+    marginBottom: 8,
   },
   footerContainer: {
-    marginTop: 20,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
+    marginTop: 'auto',
+    paddingTop: 10,
+  },
+  footerDivider: {
+    borderTopWidth: 0.8,
+    borderTopColor: pdfColors.lineDivider,
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  footerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
   },
+  footerLeft: {
+    width: '62%',
+  },
   footerNote: {
-    fontSize: 7.5,
-    color: '#94a3b8',
-    maxWidth: '55%',
-    lineHeight: 1.3,
+    fontSize: 8.5,
+    color: '#475569',
+    lineHeight: 1.35,
   },
-  signatureBlock: {
-    alignItems: 'center',
-    width: 140,
+  footerContact: {
+    fontSize: 9.5,
+    fontWeight: 'bold',
+    color: pdfColors.navy,
+    marginTop: 4,
   },
-  signatureImage: {
-    width: 100,
-    height: 40,
-    objectFit: 'contain',
-    marginBottom: 4,
+  footerRight: {
+    width: '35%',
+    alignItems: 'flex-end',
   },
   signatureLine: {
-    width: '100%',
-    borderTopWidth: 1,
-    borderTopColor: '#0f172a',
+    width: 160,
+    borderTopWidth: 0.8,
+    borderTopColor: pdfColors.navy,
     paddingTop: 4,
     alignItems: 'center',
   },
   signatoryTitle: {
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: pdfColors.navy,
   },
   signatorySubtitle: {
-    fontSize: 7,
-    color: '#64748b',
+    fontSize: 8,
+    color: pdfColors.navy,
+  },
+  zyxenTag: {
+    fontSize: 7.5,
+    color: '#94A3B8',
+    textAlign: 'right',
+    marginTop: 2,
   },
 })
 
+let cachedLogoDataUri: string | null = null
+
+function getLogoDataUri(): string | null {
+  if (cachedLogoDataUri) return cachedLogoDataUri
+  try {
+    const logoPath = path.join(process.cwd(), 'public', 'aviora-logo.png')
+    if (fs.existsSync(logoPath)) {
+      const buffer = fs.readFileSync(logoPath)
+      cachedLogoDataUri = `data:image/png;base64,${buffer.toString('base64')}`
+      return cachedLogoDataUri
+    }
+  } catch (err) {
+    console.error('Error reading logo file for PDF:', err)
+  }
+  return null
+}
+
+// Header Component matching exact reference design
 export function PdfHeader({ settings }: { settings?: Partial<CompanySettings> | null }) {
-  const companyName = settings?.company_name || 'AVIORA AVIATION ACADEMY'
-  const email = settings?.company_email || 'finance@aviora.edu'
-  const phone = settings?.company_phone || '+91 (0) 80 4567 8900'
-  const address = settings?.company_address || 'Aviora Flight Operations Wing, International Aerocity'
-  const gstin = settings?.gstin || '29AAAAA0000A1Z5'
-  const pan = settings?.pan || 'AAAAA0000A'
+  const address =
+    settings?.address ||
+    settings?.company_address ||
+    'Block No 5, 8-5-255/66, Inner Ring Road,\nDefence Colony, Hyderabad, TG, 500079'
+  const cin = settings?.cin_number || settings?.cin || 'U85500TS2025PTC198846'
+  const gstin = settings?.gstin || '0987654321417136638223'
+
+  // Respect exact checkbox directives
+  const showCin = settings?.show_cin_on_documents !== false && !!cin
+  const showGst = settings?.show_gst_on_documents !== false && !!gstin
+
+  const logoDataUri = getLogoDataUri()
 
   return (
-    <View style={pdfStyles.headerContainer}>
-      <View>
-        {settings?.logo_url ? (
-          // eslint-disable-next-line jsx-a11y/alt-text
-          <Image src={settings.logo_url} style={pdfStyles.companyLogo} />
-        ) : (
-          <View style={{ backgroundColor: '#0f172a', padding: 8, borderRadius: 4 }}>
-            <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 12 }}>AVIORA</Text>
-          </View>
-        )}
+    <View>
+      <View style={pdfStyles.headerContainer}>
+        <View style={pdfStyles.headerLeft}>
+          <Text style={pdfStyles.companyAddress}>{address}</Text>
+          {showCin && <Text style={pdfStyles.taxLine}>CIN No: {cin}</Text>}
+          {showGst && <Text style={pdfStyles.taxLine}>GST No: {gstin}</Text>}
+        </View>
+        <View style={pdfStyles.headerRight}>
+          {logoDataUri ? (
+            // eslint-disable-next-line jsx-a11y/alt-text
+            <Image src={logoDataUri} style={pdfStyles.companyLogo} />
+          ) : (
+            <View style={{ backgroundColor: pdfColors.navy, padding: 8, borderRadius: 4 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 }}>AVIORA</Text>
+            </View>
+          )}
+        </View>
       </View>
+      <View style={pdfStyles.headerDivider} />
+    </View>
+  )
+}
 
-      <View style={pdfStyles.companyInfo}>
-        <Text style={pdfStyles.companyName}>{companyName}</Text>
-        <Text style={pdfStyles.companyMeta}>{address}</Text>
-        <Text style={pdfStyles.companyMeta}>
-          {phone} | {email}
-        </Text>
-        <View style={pdfStyles.taxIdsRow}>
-          {gstin && <Text style={pdfStyles.taxBadge}>GSTIN: {gstin}</Text>}
-          {pan && <Text style={pdfStyles.taxBadge}>PAN: {pan}</Text>}
+// Two-tone angled Status Ribbon component
+export function PdfStatusRibbon({
+  title = 'OFFICIAL TAX INVOICE',
+  subtitle = '',
+}: {
+  title?: string
+  subtitle?: string
+}) {
+  return (
+    <View style={pdfStyles.ribbonContainer}>
+      <View style={pdfStyles.ribbonLeft}>
+        <Text style={pdfStyles.ribbonLeftText}>{title}</Text>
+      </View>
+      <Svg width="14" height="22" style={{ margin: 0, padding: 0 }}>
+        <Polygon points="0,0 14,0 0,22" fill={pdfColors.gold} />
+        <Polygon points="14,0 14,22 0,22" fill={pdfColors.navy} />
+      </Svg>
+      <View style={pdfStyles.ribbonRight}>
+        <Text style={pdfStyles.ribbonRightText}>{subtitle}</Text>
+      </View>
+    </View>
+  )
+}
+
+// Remittance & Bank Details Box
+export function PdfBankDetails({ settings }: { settings?: Partial<CompanySettings> | null }) {
+  const bankName = settings?.bank_name || 'HDFC Bank Ltd'
+  const accName = settings?.bank_account_name || 'Aviora Aviation Academy Pvt Ltd'
+  const accNo = settings?.bank_account_number || '50200012345678'
+  const ifsc = settings?.bank_ifsc || 'HDFC0000123'
+  const branch = settings?.bank_branch || 'Aerocity Corporate Branch'
+
+  return (
+    <View style={pdfStyles.bankBlock}>
+      <Text style={{ fontSize: 8.5, fontWeight: 'bold', color: pdfColors.navy, marginBottom: 4 }}>
+        REMITTANCE &amp; BANK DETAILS
+      </Text>
+      <View
+        style={{
+          backgroundColor: pdfColors.goldLight,
+          padding: 8,
+          borderRadius: 6,
+        }}
+      >
+        <View style={pdfStyles.infoBoxRow}>
+          <Text style={pdfStyles.infoBoxLabel}>Beneficiary:</Text>
+          <Text style={pdfStyles.infoBoxValue}>{accName}</Text>
+        </View>
+        <View style={pdfStyles.infoBoxRow}>
+          <Text style={pdfStyles.infoBoxLabel}>Bank Name:</Text>
+          <Text style={pdfStyles.infoBoxValue}>{bankName}</Text>
+        </View>
+        <View style={pdfStyles.infoBoxRow}>
+          <Text style={pdfStyles.infoBoxLabel}>Account No:</Text>
+          <Text style={pdfStyles.infoBoxValue}>{accNo}</Text>
+        </View>
+        <View style={pdfStyles.infoBoxRow}>
+          <Text style={pdfStyles.infoBoxLabel}>IFSC Code:</Text>
+          <Text style={pdfStyles.infoBoxValue}>{ifsc}</Text>
+        </View>
+        <View style={pdfStyles.infoBoxRow}>
+          <Text style={pdfStyles.infoBoxLabel}>Branch:</Text>
+          <Text style={pdfStyles.infoBoxValue}>{branch}</Text>
         </View>
       </View>
     </View>
   )
 }
 
-export function PdfBankDetails({ settings }: { settings?: Partial<CompanySettings> | null }) {
-  const bankName = settings?.bank_name || 'HDFC Bank Ltd'
-  const accName = settings?.bank_account_name || 'Aviora Aviation Academy Pvt Ltd'
-  const accNo = settings?.bank_account_number || '50200084920192'
-  const ifsc = settings?.bank_ifsc || 'HDFC0001234'
-  const branch = settings?.bank_branch || 'Aerocity Corporate Branch'
-
-  return (
-    <View style={pdfStyles.bankBlock}>
-      <Text style={[pdfStyles.sectionTitle, { fontSize: 8.5, marginBottom: 4 }]}>
-        Remittance & Bank Details
-      </Text>
-      <View style={pdfStyles.bankRow}>
-        <Text style={pdfStyles.bankLabel}>Beneficiary:</Text>
-        <Text style={pdfStyles.bankValue}>{accName}</Text>
-      </View>
-      <View style={pdfStyles.bankRow}>
-        <Text style={pdfStyles.bankLabel}>Bank Name:</Text>
-        <Text style={pdfStyles.bankValue}>{bankName}</Text>
-      </View>
-      <View style={pdfStyles.bankRow}>
-        <Text style={pdfStyles.bankLabel}>Account No:</Text>
-        <Text style={pdfStyles.bankValue}>{accNo}</Text>
-      </View>
-      <View style={pdfStyles.bankRow}>
-        <Text style={pdfStyles.bankLabel}>IFSC Code:</Text>
-        <Text style={pdfStyles.bankValue}>{ifsc}</Text>
-      </View>
-      <View style={pdfStyles.bankRow}>
-        <Text style={pdfStyles.bankLabel}>Branch:</Text>
-        <Text style={pdfStyles.bankValue}>{branch}</Text>
-      </View>
-    </View>
-  )
-}
-
-export function PdfSignatureFooter({
+// Shared Footer Component with ZYXEN Tag
+export function PdfFooter({
   settings,
   note = 'This is a computer-generated official document. Please quote the reference number in all communications.',
 }: {
   settings?: Partial<CompanySettings> | null
   note?: string
 }) {
-  const companyName = settings?.company_name || 'Aviora Aviation Academy'
+  const phone = settings?.phone || settings?.company_phone || '+91 63093 42416'
+  const email = settings?.company_email || 'Fly@avioraacademy.com'
 
   return (
     <View style={pdfStyles.footerContainer}>
-      <Text style={pdfStyles.footerNote}>{note}</Text>
-
-      <View style={pdfStyles.signatureBlock}>
-        {settings?.signature_url ? (
-          // eslint-disable-next-line jsx-a11y/alt-text
-          <Image src={settings.signature_url} style={pdfStyles.signatureImage} />
-        ) : (
-          <View style={{ height: 32 }} />
-        )}
-        <View style={pdfStyles.signatureLine}>
-          <Text style={pdfStyles.signatoryTitle}>Authorized Signatory</Text>
-          <Text style={pdfStyles.signatorySubtitle}>For {companyName}</Text>
+      <View style={pdfStyles.footerRow}>
+        <View style={pdfStyles.footerLeft}>
+          <Text style={pdfStyles.footerNote}>{note}</Text>
+          <Text style={pdfStyles.footerContact}>
+            {phone} | {email}
+          </Text>
+        </View>
+        <View style={pdfStyles.footerRight}>
+          <View style={pdfStyles.signatureLine}>
+            <Text style={pdfStyles.signatoryTitle}>Authorized Signatory</Text>
+            <Text style={pdfStyles.signatorySubtitle}>
+              For Aviora Aviation Academy
+            </Text>
+          </View>
         </View>
       </View>
+      <View style={pdfStyles.footerDivider} />
+      <Text style={pdfStyles.zyxenTag}>Developed and designed by ZYXEN</Text>
     </View>
   )
 }
+
+// Alias export for backward compatibility
+export const PdfSignatureFooter = PdfFooter

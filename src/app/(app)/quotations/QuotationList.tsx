@@ -9,6 +9,7 @@ import { formatCurrency } from '@/lib/utils/currency'
 import { StatusBadge, type StatusType } from '@/components/ui/StatusBadge'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   FileText,
   Search,
@@ -34,6 +35,7 @@ export function QuotationList() {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [deletingQuote, setDeletingQuote] = useState<Quotation | null>(null)
 
@@ -47,11 +49,11 @@ export function QuotationList() {
   }, [searchInput])
 
   // Server-side paginated and filtered query
-  const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.quotations.list({ page, search: debouncedSearch, status: statusFilter }),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.quotations.list({ page, pageSize, search: debouncedSearch, status: statusFilter }),
     queryFn: async () => {
-      const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
+      const from = page * pageSize
+      const to = from + pageSize - 1
 
       let query = supabase
         .from('quotations')
@@ -72,7 +74,7 @@ export function QuotationList() {
 
       if (debouncedSearch) {
         query = query.or(
-          `quote_no.ilike.%${debouncedSearch}%,lead_name.ilike.%${debouncedSearch}%,lead_phone.ilike.%${debouncedSearch}%`
+          `quote_no.ilike.%${debouncedSearch}%,student_name_snapshot.ilike.%${debouncedSearch}%,lead_name.ilike.%${debouncedSearch}%,lead_phone.ilike.%${debouncedSearch}%`
         )
       }
 
@@ -210,7 +212,8 @@ export function QuotationList() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {quotations.map((q) => {
-                  const recipientName = q.students?.name || q.lead_name || 'Unnamed Prospect'
+                  const recipientName =
+                    q.students?.name || q.student_name_snapshot || q.lead_name || 'Unnamed Prospect'
                   const recipientPhone = q.students?.phone || q.lead_phone
 
                   return (
@@ -225,7 +228,14 @@ export function QuotationList() {
                       </td>
 
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-gray-900">{recipientName}</div>
+                        <div className="font-semibold text-gray-900 flex items-center gap-1.5">
+                          {recipientName}
+                          {!q.students && q.student_name_snapshot && (
+                            <span className="text-2xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-normal border border-gray-200">
+                              Deleted
+                            </span>
+                          )}
+                        </div>
                         <div className="text-2xs text-gray-400">
                           {q.students ? (
                             <span>Student Ref: {q.students.admission_no}</span>
@@ -310,41 +320,15 @@ export function QuotationList() {
         )}
 
         {/* Server-Side Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50/50">
-            <div className="text-xs text-gray-500">
-              Showing <span className="font-semibold text-gray-900">{page * PAGE_SIZE + 1}</span> to{' '}
-              <span className="font-semibold text-gray-900">
-                {Math.min((page + 1) * PAGE_SIZE, totalCount)}
-              </span>{' '}
-              of <span className="font-semibold text-gray-900">{totalCount}</span> quotations
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page === 0 || isPlaceholderData}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </button>
-
-              <span className="text-xs text-gray-600 px-2">
-                Page {page + 1} of {totalPages}
-              </span>
-
-              <button
-                disabled={page >= totalPages - 1 || isPlaceholderData}
-                onClick={() => setPage((p) => p + 1)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination
+          totalCount={totalCount}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="Quotations"
+          isLoading={isLoading}
+        />
       </div>
 
       {/* Delete Confirmation Modal */}

@@ -6,5 +6,9 @@ export const metadata = {
 }
 
 export default function AdminUsersPage() {
-  return <AdminUsersClient />
+  return (
+    <div className="max-w-[1800px] w-full mx-auto py-2 sm:py-4">
+      <AdminUsersClient />
+    </div>
+  )
 }

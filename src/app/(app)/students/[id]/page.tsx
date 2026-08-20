@@ -7,7 +7,7 @@ export const metadata = {
 
 export default function StudentDetailPage() {
   return (
-    <div className="max-w-7xl mx-auto py-4">
+    <div className="max-w-[1800px] w-full mx-auto py-2 sm:py-4">
       <StudentProfile />
     </div>
   )

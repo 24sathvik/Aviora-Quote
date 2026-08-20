@@ -21,6 +21,7 @@ import {
   Shield,
   CreditCard,
   ArrowUpRight,
+  X,
 } from 'lucide-react'
 
 function cn(...inputs: ClassValue[]) {
@@ -40,7 +41,7 @@ const baseNavItems = [
   { name: 'Reports', href: '/reports', icon: BarChart3 },
 ]
 
-export function Sidebar() {
+export function Sidebar({ onMobileNavigate }: { onMobileNavigate?: () => void }) {
   const pathname = usePathname()
   const supabase = createClient()
 
@@ -49,13 +50,29 @@ export function Sidebar() {
     queryKey: queryKeys.userProfile(),
     queryFn: async () => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      if (!user) return null
-      const { data } = await supabase.from('users').select('*').eq('id', user.id).single()
-      return data
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      let user = session?.user
+      if (!user) {
+        const {
+          data: { user: fetchedUser },
+        } = await supabase.auth.getUser()
+        if (fetchedUser) user = fetchedUser
+      }
+      if (!user) return undefined
+
+      const { data } = await supabase.from('users').select('*').eq('id', user.id).maybeSingle()
+
+      return {
+        id: user.id,
+        email: user.email || '',
+        name: data?.name || user.user_metadata?.name || user.email || 'Admin',
+        role: data?.role || 'admin',
+        created_at: data?.created_at || user.created_at,
+      }
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
   })
 
   const isSuperAdmin = userProfile?.role === 'super_admin'
@@ -65,21 +82,28 @@ export function Sidebar() {
     ...(isSuperAdmin
       ? [
           { name: 'Admin Users', href: '/admin-users', icon: Shield },
-          { name: 'Settings', href: '/settings', icon: Settings },
         ]
       : []),
   ]
 
   return (
-    <div className="flex h-full w-64 flex-col bg-white border-r border-gray-200 shadow-sm font-sans shrink-0">
-      {/* Dark Blue Header Box with LARGE, PROMINENT Logo Filling the Header Box */}
-      <div className="bg-[#0f4383] px-3.5 py-2 h-16 flex items-center justify-center shrink-0 overflow-hidden">
+    <div className="flex h-full w-full md:w-64 flex-col bg-white border-r border-gray-200 shadow-sm font-sans shrink-0">
+      {/* Dark Blue Header Box with LARGE, PROMINENT Logo */}
+      <div className="bg-[#0f4383] px-3.5 py-2 h-16 flex items-center justify-between shrink-0 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/aviora-logo-horizontal.png"
           alt="AVIORA"
-          className="w-full h-auto max-h-12 object-contain shrink-0"
+          className="w-auto h-auto max-h-12 object-contain shrink-0"
         />
+        {onMobileNavigate && (
+          <button
+            onClick={onMobileNavigate}
+            className="md:hidden p-1.5 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
       </div>
 
       {/* Role / Context Sub-Header */}
@@ -96,6 +120,7 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={onMobileNavigate}
               className={cn(
                 'group relative flex items-center rounded-lg px-3.5 py-2.5 text-sm font-semibold transition-colors',
                 isActive

@@ -2,11 +2,12 @@
 
 import React, { useState } from 'react'
 import Link from 'next/link'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   Users,
   Search,
@@ -27,31 +28,76 @@ import {
   XCircle,
   CheckCircle2,
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import type { Faculty } from '@/types/database'
+
+const PAGE_SIZE = 15
 
 export function FacultyList() {
   const supabase = createClient()
   const queryClient = useQueryClient()
   const { success, error: toastError } = useToast()
 
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [editingFaculty, setEditingFaculty] = useState<Faculty | null>(null)
 
-  // Fetch faculty list
-  const { data: facultyList, isLoading } = useQuery({
-    queryKey: queryKeys.faculty.all,
+  // Debounce search query (~300ms)
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput.trim())
+      setPage(0)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  // Fetch departments list for filter dropdown
+  const { data: departmentsList = [] } = useQuery({
+    queryKey: ['faculty', 'departments'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase.from('faculty').select('department')
+      const depts = Array.from(new Set((data || []).map((f: any) => f.department).filter(Boolean)))
+      return depts as string[]
+    },
+  })
+
+  // Paginated & filtered faculty query
+  const { data, isLoading } = useQuery({
+    queryKey: ['faculty', 'list', { page, pageSize, search: debouncedSearch, department: departmentFilter }],
+    queryFn: async () => {
+      const from = page * pageSize
+      const to = from + pageSize - 1
+
+      let query = supabase
         .from('faculty')
-        .select('*')
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
 
+      if (departmentFilter !== 'all') {
+        query = query.eq('department', departmentFilter)
+      }
+
+      if (debouncedSearch) {
+        query = query.or(
+          `name.ilike.%${debouncedSearch}%,designation.ilike.%${debouncedSearch}%,department.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%,email.ilike.%${debouncedSearch}%`
+        )
+      }
+
+      const { data: facultyRows, count, error } = await query.range(from, to)
       if (error) throw error
-      return (data || []) as Faculty[]
+
+      return {
+        faculty: (facultyRows || []) as Faculty[],
+        totalCount: count || 0,
+      }
     },
+    placeholderData: keepPreviousData,
   })
 
   // Add / Edit Faculty Mutation (Optimistic)
@@ -173,21 +219,9 @@ export function FacultyList() {
     },
   })
 
-  const departments = Array.from(
-    new Set((facultyList || []).map((f) => f.department).filter(Boolean))
-  ) as string[]
-
-  const filtered = (facultyList || []).filter((f) => {
-    const matchesSearch =
-      f.name.toLowerCase().includes(search.toLowerCase()) ||
-      (f.designation && f.designation.toLowerCase().includes(search.toLowerCase())) ||
-      (f.department && f.department.toLowerCase().includes(search.toLowerCase())) ||
-      f.phone.toLowerCase().includes(search.toLowerCase()) ||
-      (f.email && f.email.toLowerCase().includes(search.toLowerCase()))
-
-    const matchesDept = departmentFilter === 'all' || f.department === departmentFilter
-    return matchesSearch && matchesDept
-  })
+  const facultyList = data?.faculty || []
+  const totalCount = data?.totalCount || 0
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE)
 
   return (
     <div className="space-y-6">
@@ -195,7 +229,7 @@ export function FacultyList() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-            Faculty & Instructors
+            Faculty &amp; Instructors
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Manage teaching faculty, department allocations, bank accounts, and employment records.
@@ -220,59 +254,53 @@ export function FacultyList() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Search faculty by name, designation, department, phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search faculty by name, designation, department, phone, or email..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
           />
         </div>
 
-        {departments.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500">Dept:</span>
-            <select
-              value={departmentFilter}
-              onChange={(e) => setDepartmentFilter(e.target.value)}
-              className="text-xs rounded-lg border border-gray-300 px-3 py-2 bg-white focus:outline-none focus:ring-accent"
-            >
-              <option value="all">All Departments</option>
-              {departments.map((dept) => (
-                <option key={dept} value={dept}>
-                  {dept}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          <Filter className="w-4 h-4 text-gray-400" />
+          <select
+            value={departmentFilter}
+            onChange={(e) => {
+              setDepartmentFilter(e.target.value)
+              setPage(0)
+            }}
+            className="py-2 px-3 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
+          >
+            <option value="all">All Departments</option>
+            {departmentsList.map((dept) => (
+              <option key={dept} value={dept}>
+                {dept}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Faculty Data Table */}
+      {/* Faculty List Table Container */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
         {isLoading ? (
           <div className="p-6 space-y-4">
-            <div className="grid grid-cols-5 gap-4">
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-              <Skeleton className="h-6" />
-            </div>
-            {[1, 2, 3, 4, 5, 6].map((i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : facultyList.length === 0 ? (
           <div className="p-12 text-center">
             <div className="mx-auto w-12 h-12 rounded-full bg-navy-50 flex items-center justify-center text-navy-700 mb-4">
-              <UserCheck className="w-6 h-6" />
+              <Users className="w-6 h-6" />
             </div>
             <h3 className="text-base font-semibold text-gray-900">No faculty members found</h3>
-            <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">
-              {search || departmentFilter !== 'all'
-                ? 'No faculty matched your filter criteria.'
-                : 'Get started by creating your faculty roster.'}
+            <p className="text-sm text-gray-500 mt-1 max-w-md mx-auto">
+              {searchInput || departmentFilter !== 'all'
+                ? 'No faculty members matched your search or department filter.'
+                : 'Get started by adding your first instructor or teaching faculty member.'}
             </p>
-            {!search && departmentFilter === 'all' && (
+            {!searchInput && departmentFilter === 'all' && (
               <button
                 onClick={() => {
                   setEditingFaculty(null)
@@ -311,7 +339,7 @@ export function FacultyList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 bg-white">
-                {filtered.map((faculty) => (
+                {facultyList.map((faculty) => (
                   <tr
                     key={faculty.id}
                     className={`hover:bg-gray-50/80 transition-colors ${
@@ -453,6 +481,17 @@ export function FacultyList() {
           </div>
         )}
       </div>
+
+      {/* Pagination Controls Bar */}
+      <Pagination
+        totalCount={totalCount}
+        currentPage={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        itemLabel="Faculty Members"
+        isLoading={isLoading}
+      />
 
       {/* Add / Edit Faculty Modal */}
       {isAddModalOpen && (

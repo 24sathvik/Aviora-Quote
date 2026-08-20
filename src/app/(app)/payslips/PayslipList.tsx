@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   Banknote,
   Plus,
@@ -40,6 +41,7 @@ export function PayslipList() {
   const supabase = createClient()
 
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [selectedFaculty, setSelectedFaculty] = useState<string>('all')
   const [selectedYear, setSelectedYear] = useState<string>('all')
 
@@ -53,11 +55,11 @@ export function PayslipList() {
   })
 
   // Paginated and filtered payslips query
-  const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.payslips.list({ page, facultyId: selectedFaculty, year: selectedYear }),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.payslips.list({ page, pageSize, facultyId: selectedFaculty, year: selectedYear }),
     queryFn: async () => {
-      const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
+      const from = page * pageSize
+      const to = from + pageSize - 1
 
       let query = supabase
         .from('payslips')
@@ -253,41 +255,15 @@ export function PayslipList() {
         )}
 
         {/* Server-Side Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50/50">
-            <div className="text-xs text-gray-500">
-              Showing <span className="font-semibold text-gray-900">{page * PAGE_SIZE + 1}</span> to{' '}
-              <span className="font-semibold text-gray-900">
-                {Math.min((page + 1) * PAGE_SIZE, totalCount)}
-              </span>{' '}
-              of <span className="font-semibold text-gray-900">{totalCount}</span> payslips
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page === 0 || isPlaceholderData}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </button>
-
-              <span className="text-xs text-gray-600 px-2">
-                Page {page + 1} of {totalPages}
-              </span>
-
-              <button
-                disabled={page >= totalPages - 1 || isPlaceholderData}
-                onClick={() => setPage((p) => p + 1)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination
+          totalCount={totalCount}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="Payslips"
+          isLoading={isLoading}
+        />
       </div>
     </div>
   )

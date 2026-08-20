@@ -10,7 +10,7 @@ export default async function NewPaymentPage(props: {
 }) {
   const searchParams = await props.searchParams
   return (
-    <div className="max-w-7xl mx-auto py-4">
+    <div className="max-w-[1800px] w-full mx-auto py-2 sm:py-4">
       <PaymentForm prefillInvoiceId={searchParams.invoice_id || null} />
     </div>
   )

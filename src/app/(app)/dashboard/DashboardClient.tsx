@@ -130,7 +130,7 @@ export function DashboardClient() {
               <FileSpreadsheet className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-navy-950 font-mono">
+          <div className="text-2xl 2xl:text-3xl font-extrabold text-navy-950 font-mono">
             {formatCurrency(summary.billed_for_period)}
           </div>
           <p className="text-2xs text-gray-500 flex items-center gap-1">
@@ -149,12 +149,12 @@ export function DashboardClient() {
               <CreditCard className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-emerald-700 font-mono">
+          <div className="text-2xl 2xl:text-3xl font-extrabold text-emerald-700 font-mono">
             {formatCurrency(summary.collected_for_period)}
           </div>
           <p className="text-2xs text-emerald-700 flex items-center gap-1 font-medium">
             <Receipt className="w-3 h-3 text-emerald-600" />
-            Realized payments realized in {period === 'this_month' ? 'current month' : 'all time'}
+            Payments received ({period === 'this_month' ? 'current month' : 'cumulative all time'})
           </p>
         </div>
 
@@ -171,7 +171,7 @@ export function DashboardClient() {
               <CreditCard className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-purple-950 font-mono">
+          <div className="text-2xl 2xl:text-3xl font-extrabold text-purple-950 font-mono">
             {formatCurrency(
               period === 'this_month'
                 ? expSummary?.total_this_month || 0
@@ -180,7 +180,7 @@ export function DashboardClient() {
           </div>
           <p className="text-2xs text-purple-700 flex items-center gap-1 font-medium">
             <Receipt className="w-3 h-3 text-purple-600" />
-            {period === 'this_month' ? 'Total spent in current month' : 'Cumulative all-time expenditure'}
+            Business expenditures ({period === 'this_month' ? 'current month' : 'cumulative all time'})
           </p>
         </Link>
 
@@ -205,7 +205,7 @@ export function DashboardClient() {
               <AlertCircle className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-extrabold text-rose-700 font-mono">
+          <div className="text-2xl 2xl:text-3xl font-extrabold text-rose-700 font-mono">
             {formatCurrency(summary.outstanding_current)}
           </div>
           <p className="text-2xs text-gray-500 font-medium">
@@ -317,7 +317,9 @@ export function DashboardClient() {
                     <Link href={`/invoices/${inv.id}`} className="font-mono font-bold text-navy-900 hover:underline">
                       {inv.invoice_no}
                     </Link>
-                    <span className="text-2xs text-gray-500 block">{inv.student_name || 'Enrolled Student'}</span>
+                    <span className="text-2xs text-gray-500 block">
+                      {(inv as any).student_name || (inv as any).student_name_snapshot || 'Enrolled Student'}
+                    </span>
                   </div>
                   <div className="text-right">
                     <span className="font-mono font-bold text-gray-900 block">{formatCurrency(inv.grand_total)}</span>

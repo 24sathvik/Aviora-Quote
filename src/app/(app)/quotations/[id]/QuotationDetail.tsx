@@ -191,7 +191,8 @@ export function QuotationDetail() {
     )
   }
 
-  const recipientName = quotation.students?.name || quotation.lead_name || 'Prospective Student'
+  const recipientName =
+    quotation.students?.name || quotation.student_name_snapshot || quotation.lead_name || 'Valued Prospect'
   const recipientPhone = quotation.students?.phone || quotation.lead_phone
   const recipientEmail = quotation.students?.email || quotation.lead_email
   const items = quotation.quotation_items || []
@@ -352,7 +353,25 @@ export function QuotationDetail() {
                 Prepared For (Lead / Student)
               </h3>
               <div className="space-y-1">
-                <p className="text-base font-bold text-gray-900">{recipientName}</p>
+                <div className="flex items-center gap-2">
+                  {quotation.students?.id ? (
+                    <Link
+                      href={`/students/${quotation.students.id}`}
+                      className="text-base font-bold text-navy-800 hover:text-navy-950 hover:underline"
+                    >
+                      {recipientName}
+                    </Link>
+                  ) : (
+                    <span className="text-base font-bold text-gray-900 flex items-center gap-2">
+                      {recipientName}
+                      {quotation.student_id && !quotation.students && (
+                        <span className="text-2xs px-2 py-0.5 rounded bg-gray-100 text-gray-500 font-normal border border-gray-200">
+                          (Deleted Student)
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
                 {quotation.students?.admission_no && (
                   <p className="text-xs text-gray-600 font-mono">Admission No: {quotation.students.admission_no}</p>
                 )}

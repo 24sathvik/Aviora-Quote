@@ -26,6 +26,12 @@ import {
   Calendar,
   CheckCircle2,
 } from 'lucide-react'
+import {
+  CompanyDetailsPanel,
+  CompanyDetailsState,
+  CompanyDetailsChangePayload,
+  saveCompanySettings,
+} from '@/components/shared/CompanyDetailsPanel'
 import type { Student, Invoice, PaymentMode } from '@/types/database'
 
 interface PaymentFormProps {
@@ -51,6 +57,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
   const [referenceNo, setReferenceNo] = useState('')
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
+  const [companyDetails, setCompanyDetails] = useState<CompanyDetailsChangePayload | null>(null)
 
   // 1. Fetch active students via QueryKey registry
   const { data: studentsList, isLoading: loadingStudents } = useQuery({
@@ -194,6 +201,24 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
       if (!invoiceId) throw new Error('Please select an open tax invoice to credit payment towards')
       if (!enteredAmount || enteredAmount <= 0) {
         throw new Error('Payment amount must be greater than zero')
+      }
+
+      // Save updated company & document settings ONLY if edited by user
+      if (companyDetails?.isDirty) {
+        try {
+          await saveCompanySettings(supabase, companyDetails.values)
+        } catch (csErr: any) {
+          console.warn('Company settings update warning:', {
+            message: csErr.message || csErr,
+            code: csErr.code,
+            details: csErr.details,
+            hint: csErr.hint,
+          })
+          toastError(
+            'Settings Save Notice',
+            'Payment will be recorded, but company default settings could not be updated.'
+          )
+        }
       }
 
       // Generate idempotency key on first submission attempt if not already set
@@ -375,7 +400,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
                   <option value="bank_transfer">Bank Transfer (NEFT / RTGS / IMPS)</option>
                   <option value="upi">UPI (GPay / PhonePe / QR Transfer)</option>
                   <option value="cheque">Bank Demand Draft / Cheque</option>
-                  <option value="cash">Counter Cash Realization</option>
+                  <option value="cash">Cash Payment</option>
                 </select>
               </div>
 
@@ -394,7 +419,7 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
 
               <div>
                 <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Payment Realization Date *
+                  Payment Date *
                 </label>
                 <input
                   type="date"
@@ -419,6 +444,9 @@ export function PaymentForm({ prefillInvoiceId }: PaymentFormProps) {
               </div>
             </div>
           </div>
+
+          {/* Card 3: Company & Document Details (Editable Panel) */}
+          <CompanyDetailsPanel onChange={setCompanyDetails} initialCollapsed={true} />
         </div>
 
         {/* Right Sidebar: Live Real-Time Ledger Preview */}

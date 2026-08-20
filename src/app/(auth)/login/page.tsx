@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import {
   Loader2,
@@ -22,6 +23,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const queryClient = useQueryClient()
   const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -38,6 +40,7 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
+      queryClient.clear()
       router.push('/dashboard')
       router.refresh()
     }

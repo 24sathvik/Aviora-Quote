@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/Toast'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { ErrorBanner } from '@/components/ui/ErrorBanner'
 import { Modal } from '@/components/ui/Modal'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   CreditCard,
   Plus,
@@ -582,37 +583,14 @@ export function ExpenseList() {
         )}
 
         {/* Pagination Bar */}
-        {!isLoading && totalCount > 0 && (
-          <div className="px-6 py-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gray-50/50 w-full min-w-0">
-            <span className="text-xs text-gray-500">
-              Showing <strong className="font-semibold text-gray-900">{(page - 1) * pageSize + 1}</strong> to{' '}
-              <strong className="font-semibold text-gray-900">
-                {Math.min(page * pageSize, totalCount)}
-              </strong>{' '}
-              of <strong className="font-semibold text-gray-900">{totalCount}</strong> records
-            </span>
-
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <button
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="p-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="text-xs font-mono font-medium text-gray-700">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="p-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination
+          totalCount={totalCount}
+          currentPage={page - 1}
+          pageSize={pageSize}
+          onPageChange={(p) => setPage(p + 1)}
+          itemLabel="Expenses"
+          isLoading={isLoading}
+        />
       </div>
 
       {/* Modal: Add / Edit Expense */}

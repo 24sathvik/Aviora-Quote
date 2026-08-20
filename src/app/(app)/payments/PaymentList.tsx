@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
 import { formatCurrency } from '@/lib/utils/currency'
 import { Skeleton } from '@/components/ui/Skeleton'
+import { Pagination } from '@/components/ui/Pagination'
 import {
   Receipt,
   Search,
@@ -31,6 +32,7 @@ export function PaymentList() {
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(10)
   const [modeFilter, setModeFilter] = useState<string>('all')
 
   // Debounce search query (~300ms)
@@ -43,11 +45,11 @@ export function PaymentList() {
   }, [searchInput])
 
   // Server-side paginated and filtered payments query
-  const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.payments.list({ page, search: debouncedSearch, mode: modeFilter }),
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.payments.list({ page, pageSize, search: debouncedSearch, mode: modeFilter }),
     queryFn: async () => {
-      const from = page * PAGE_SIZE
-      const to = from + PAGE_SIZE - 1
+      const from = page * pageSize
+      const to = from + pageSize - 1
 
       let query = supabase
         .from('payments')
@@ -78,7 +80,7 @@ export function PaymentList() {
 
       if (debouncedSearch) {
         query = query.or(
-          `receipt_no.ilike.%${debouncedSearch}%,reference_no.ilike.%${debouncedSearch}%,students.name.ilike.%${debouncedSearch}%,students.admission_no.ilike.%${debouncedSearch}%`
+          `receipt_no.ilike.%${debouncedSearch}%,reference_no.ilike.%${debouncedSearch}%,student_name_snapshot.ilike.%${debouncedSearch}%,students.name.ilike.%${debouncedSearch}%,students.admission_no.ilike.%${debouncedSearch}%`
         )
       }
 
@@ -106,7 +108,7 @@ export function PaymentList() {
             Payment Receipts & Collections
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Immutable fee realization records, bank transactions, and generated receipts.
+            Immutable fee payment records, bank transactions, and generated receipts.
           </p>
         </div>
 
@@ -217,11 +219,17 @@ export function PaymentList() {
                       </td>
 
                       <td className="px-6 py-4">
-                        <div className="font-semibold text-gray-900">
-                          {student?.name || 'Enrolled Student'}
+                        <div className="font-semibold text-gray-900 flex items-center gap-1.5">
+                          {student?.name || p.student_name_snapshot || 'Enrolled Student'}
+                          {!student && p.student_name_snapshot && (
+                            <span className="text-2xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-normal border border-gray-200">
+                              Deleted
+                            </span>
+                          )}
                         </div>
                         <div className="text-2xs text-gray-400">
-                          {student?.admission_no} • {student?.phone || 'N/A'}
+                          {student?.admission_no ? `${student.admission_no} • ` : ''}
+                          {student?.phone || 'N/A'}
                         </div>
                       </td>
 
@@ -276,41 +284,15 @@ export function PaymentList() {
         )}
 
         {/* Server-Side Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50/50">
-            <div className="text-xs text-gray-500">
-              Showing <span className="font-semibold text-gray-900">{page * PAGE_SIZE + 1}</span> to{' '}
-              <span className="font-semibold text-gray-900">
-                {Math.min((page + 1) * PAGE_SIZE, totalCount)}
-              </span>{' '}
-              of <span className="font-semibold text-gray-900">{totalCount}</span> payment receipts
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page === 0 || isPlaceholderData}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </button>
-
-              <span className="text-xs text-gray-600 px-2">
-                Page {page + 1} of {totalPages}
-              </span>
-
-              <button
-                disabled={page >= totalPages - 1 || isPlaceholderData}
-                onClick={() => setPage((p) => p + 1)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <Pagination
+          totalCount={totalCount}
+          currentPage={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          itemLabel="Payment Receipts"
+          isLoading={isLoading}
+        />
       </div>
     </div>
   )

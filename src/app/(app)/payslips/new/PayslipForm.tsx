@@ -28,6 +28,12 @@ import {
   MinusCircle,
   PlusCircle,
 } from 'lucide-react'
+import {
+  CompanyDetailsPanel,
+  CompanyDetailsState,
+  CompanyDetailsChangePayload,
+  saveCompanySettings,
+} from '@/components/shared/CompanyDetailsPanel'
 import type { Faculty, FacultySalaryStructure } from '@/types/database'
 
 const MONTHS = [
@@ -65,6 +71,7 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
   const [facultyId, setFacultyId] = useState<string>(prefillFacultyId || '')
   const [month, setMonth] = useState<number>(today.getMonth() + 1)
   const [year, setYear] = useState<number>(today.getFullYear())
+  const [companyDetails, setCompanyDetails] = useState<CompanyDetailsChangePayload | null>(null)
 
   // 1. Fetch active faculty directory via queryKeys registry
   const { data: facultyList, isLoading: loadingFaculty } = useQuery({
@@ -144,6 +151,23 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
 
       if (!facultyId) throw new Error('Please select a faculty member')
       if (!month || !year) throw new Error('Please select a valid payroll period')
+      // Save updated company & document settings ONLY if edited by user
+      if (companyDetails?.isDirty) {
+        try {
+          await saveCompanySettings(supabase, companyDetails.values)
+        } catch (csErr: any) {
+          console.warn('Company settings update warning:', {
+            message: csErr.message || csErr,
+            code: csErr.code,
+            details: csErr.details,
+            hint: csErr.hint,
+          })
+          toastError(
+            'Settings Save Notice',
+            'Payslip will be generated, but company default settings could not be updated.'
+          )
+        }
+      }
 
       if (!idempotencyKeyRef.current) {
         idempotencyKeyRef.current = generateIdempotencyKey()
@@ -368,6 +392,9 @@ export function PayslipForm({ prefillFacultyId }: PayslipFormProps) {
               </div>
             </div>
           )}
+
+          {/* Card 3: Company & Document Details (Editable Panel) */}
+          <CompanyDetailsPanel onChange={setCompanyDetails} initialCollapsed={true} />
         </div>
 
         {/* Right Sidebar: Live Net Payable Calculation */}
