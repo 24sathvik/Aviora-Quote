@@ -7,7 +7,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { queryKeys } from '@/lib/query-keys'
 import { updateCompanyInvoiceStatus, deleteCompanyInvoice } from '@/lib/company-invoices/actions'
-import { formatCurrencyWithSymbol, getCurrencySymbol } from '@/lib/utils/currency'
+import {
+  formatCurrencyWithSymbol,
+  getCurrencySymbol,
+  roundCurrency,
+} from '@/lib/utils/currency'
+import { formatExchangeRateDisplay } from '@/lib/utils/exchange-rates'
 import { Skeleton } from '@/components/ui/Skeleton'
 import { useToast } from '@/components/ui/Toast'
 import {
@@ -31,8 +36,9 @@ import {
   Info,
   Clock,
   Send,
+  Sparkles,
 } from 'lucide-react'
-import type { CompanyInvoice, CompanyInvoiceStatus } from '@/types/database'
+import type { CompanyInvoice, CompanyInvoiceStatus, SupportedCurrency } from '@/types/database'
 
 export function CompanyInvoiceDetail() {
   const params = useParams()
@@ -58,7 +64,9 @@ export function CompanyInvoiceDetail() {
             quantity,
             unit_price,
             line_total,
-            currency
+            currency,
+            converted_unit_price,
+            converted_line_total
           )
         `)
         .eq('id', invoiceId)
@@ -76,6 +84,7 @@ export function CompanyInvoiceDetail() {
     },
     onSuccess: (_, newStatus) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInvoices.all })
+      queryClient.invalidateQueries({ queryKey: queryKeys.companyInvoices.detail(invoiceId) })
       success(`Company invoice status marked as ${newStatus}`)
     },
     onError: (err: Error) => {
@@ -129,8 +138,28 @@ export function CompanyInvoiceDetail() {
 
   const currency = invoice.currency || 'INR'
   const currencySymbol = getCurrencySymbol(currency)
+  const convertedCurrency: SupportedCurrency =
+    invoice.converted_currency || (invoice.currency === 'INR' ? 'USD' : 'INR')
+  const convertedCurrencySymbol = getCurrencySymbol(convertedCurrency)
+  const exchangeRate = Number(invoice.exchange_rate) || 1
+  const exchangeRateDate = invoice.exchange_rate_date || invoice.invoice_date
+  const exchangeRateDisplay = formatExchangeRateDisplay(currency, convertedCurrency, exchangeRate)
+
   const items = invoice.company_invoice_items || []
   const isGstApplied = Number(invoice.gst_percent) > 0 && Number(invoice.gst_amount) > 0
+
+  const convertedGrandTotal = invoice.converted_grand_total
+    ? Number(invoice.converted_grand_total)
+    : roundCurrency(invoice.grand_total * exchangeRate)
+  const convertedSubtotal = invoice.converted_subtotal
+    ? Number(invoice.converted_subtotal)
+    : roundCurrency(invoice.subtotal * exchangeRate)
+  const convertedGstAmount = invoice.converted_gst_amount
+    ? Number(invoice.converted_gst_amount)
+    : roundCurrency(invoice.gst_amount * exchangeRate)
+  const convertedDiscountAmount = invoice.converted_discount_amount
+    ? Number(invoice.converted_discount_amount)
+    : roundCurrency((invoice.discount_amount || 0) * exchangeRate)
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 py-4">
@@ -272,10 +301,10 @@ export function CompanyInvoiceDetail() {
 
               <div>
                 <span className="text-xs text-gray-400 flex items-center gap-1">
-                  <Globe2 className="w-3 h-3" /> Currency
+                  <Globe2 className="w-3 h-3" /> Currencies
                 </span>
-                <span className="font-semibold text-gray-900 font-mono">
-                  {currency} ({currencySymbol})
+                <span className="font-semibold text-gray-900 font-mono text-xs">
+                  {currency} / {convertedCurrency}
                 </span>
               </div>
             </div>
@@ -311,12 +340,12 @@ export function CompanyInvoiceDetail() {
           </div>
         </div>
 
-        {/* Card 2: Invoice Schedule */}
+        {/* Card 2: Invoice Schedule & Dual Currency Summary */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-xs space-y-4">
           <div className="flex items-center gap-2 pb-3 border-b border-gray-100">
             <Calendar className="w-4 h-4 text-navy-700" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-              Invoice Schedule &amp; Summary
+              Invoice Schedule &amp; Dual Currency
             </h3>
           </div>
 
@@ -347,7 +376,7 @@ export function CompanyInvoiceDetail() {
               </div>
             </div>
 
-            <div className="pt-3 border-t border-gray-100 flex justify-between items-baseline">
+            <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-gray-500 block">
                   Grand Total ({currency})
@@ -356,12 +385,28 @@ export function CompanyInvoiceDetail() {
                   {formatCurrencyWithSymbol(invoice.grand_total, currency)}
                 </span>
               </div>
+
+              <div className="sm:text-right">
+                <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 block">
+                  Dual Equivalent ({convertedCurrency})
+                </span>
+                <span className="text-xl font-bold font-mono text-emerald-800">
+                  {formatCurrencyWithSymbol(convertedGrandTotal, convertedCurrency)}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-100 text-2xs text-gray-500 font-mono flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-navy-700 shrink-0" />
+              <span>
+                Forex Rate as of {exchangeRateDate}: <strong className="text-navy-900">{exchangeRateDisplay}</strong>
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Line Items Table */}
+      {/* Line Items Table with Dual Currency */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -371,7 +416,7 @@ export function CompanyInvoiceDetail() {
             </h3>
           </div>
           <span className="text-xs text-gray-500 font-mono">
-            Active Currency: {currency} ({currencySymbol})
+            {currency} &amp; {convertedCurrency} Dual Values
           </span>
         </div>
 
@@ -381,31 +426,50 @@ export function CompanyInvoiceDetail() {
               <tr className="border-b border-gray-200 bg-gray-50/75 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 <th className="py-3 px-4 w-12">#</th>
                 <th className="py-3 px-4">Student Name / Description</th>
-                <th className="py-3 px-4 text-center w-24">Qty</th>
-                <th className="py-3 px-4 text-right w-36">Fee / Amount</th>
-                <th className="py-3 px-4 text-right w-36">Total</th>
+                <th className="py-3 px-4 text-center w-20">Qty</th>
+                <th className="py-3 px-4 text-right w-32">Rate ({currency})</th>
+                <th className="py-3 px-4 text-right w-32">Equiv ({convertedCurrency})</th>
+                <th className="py-3 px-4 text-right w-36">Total ({currency})</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
-              {items.map((item, idx) => (
-                <tr key={item.id || idx} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3.5 px-4 text-xs font-mono text-gray-400">
-                    {idx + 1}
-                  </td>
-                  <td className="py-3.5 px-4 font-semibold text-gray-900">
-                    {item.description}
-                  </td>
-                  <td className="py-3.5 px-4 text-center font-mono text-gray-700">
-                    {item.quantity}
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-mono text-gray-600">
-                    {formatCurrencyWithSymbol(item.unit_price, currency)}
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900">
-                    {formatCurrencyWithSymbol(item.line_total, currency)}
-                  </td>
-                </tr>
-              ))}
+              {items.map((item, idx) => {
+                const itemQty = Number(item.quantity) || 1
+                const itemPrice = Number(item.unit_price) || 0
+                const itemLineTotal = Number(item.line_total) || itemQty * itemPrice
+                const itemEquivPrice =
+                  Number(item.converted_unit_price) || roundCurrency(itemPrice * exchangeRate)
+                const itemEquivTotal =
+                  Number(item.converted_line_total) || roundCurrency(itemLineTotal * exchangeRate)
+
+                return (
+                  <tr key={item.id || idx} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="py-3.5 px-4 text-xs font-mono text-gray-400">
+                      {idx + 1}
+                    </td>
+                    <td className="py-3.5 px-4 font-semibold text-gray-900">
+                      {item.description}
+                    </td>
+                    <td className="py-3.5 px-4 text-center font-mono text-gray-700">
+                      {item.quantity}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-mono text-gray-700">
+                      {formatCurrencyWithSymbol(itemPrice, currency)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-mono text-emerald-800">
+                      {formatCurrencyWithSymbol(itemEquivPrice, convertedCurrency)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-gray-900">
+                      <div>
+                        {formatCurrencyWithSymbol(itemLineTotal, currency)}
+                        <span className="block text-2xs font-normal text-emerald-700">
+                          ≈ {formatCurrencyWithSymbol(itemEquivTotal, convertedCurrency)}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -421,37 +485,67 @@ export function CompanyInvoiceDetail() {
             </p>
           </div>
 
-          <div className="w-full md:w-72 space-y-2 text-xs">
+          <div className="w-full md:w-80 space-y-2.5 text-xs">
             <div className="flex justify-between text-gray-600">
               <span>Subtotal:</span>
-              <span className="font-semibold text-gray-900 font-mono">
-                {formatCurrencyWithSymbol(invoice.subtotal, currency)}
-              </span>
+              <div className="text-right font-mono">
+                <span className="font-semibold text-gray-900 block">
+                  {formatCurrencyWithSymbol(invoice.subtotal, currency)}
+                </span>
+                <span className="text-2xs text-gray-500">
+                  ≈ {formatCurrencyWithSymbol(convertedSubtotal, convertedCurrency)}
+                </span>
+              </div>
             </div>
 
             {Number(invoice.discount_amount) > 0 && (
               <div className="flex justify-between text-rose-700">
                 <span>Discount Amount:</span>
-                <span className="font-semibold font-mono">
-                  - {formatCurrencyWithSymbol(invoice.discount_amount, currency)}
-                </span>
+                <div className="text-right font-mono">
+                  <span className="font-semibold block">
+                    - {formatCurrencyWithSymbol(invoice.discount_amount, currency)}
+                  </span>
+                  <span className="text-2xs text-rose-500">
+                    ≈ - {formatCurrencyWithSymbol(convertedDiscountAmount, convertedCurrency)}
+                  </span>
+                </div>
               </div>
             )}
 
             <div className="flex justify-between text-gray-600">
               <span>GST {isGstApplied ? `(${invoice.gst_percent}%)` : '(Optional)'}:</span>
-              <span className="font-semibold text-gray-900 font-mono">
-                {isGstApplied
-                  ? `+ ${formatCurrencyWithSymbol(invoice.gst_amount, currency)}`
-                  : '0.00'}
-              </span>
+              <div className="text-right font-mono">
+                <span className="font-semibold text-gray-900 block">
+                  {isGstApplied
+                    ? `+ ${formatCurrencyWithSymbol(invoice.gst_amount, currency)}`
+                    : '0.00'}
+                </span>
+                {isGstApplied && (
+                  <span className="text-2xs text-gray-500">
+                    ≈ + {formatCurrencyWithSymbol(convertedGstAmount, convertedCurrency)}
+                  </span>
+                )}
+              </div>
             </div>
 
-            <div className="pt-2 border-t border-gray-200 flex justify-between items-baseline font-bold">
-              <span className="text-gray-900 text-sm">Grand Total ({currency}):</span>
-              <span className="text-lg font-mono text-navy-900">
-                {formatCurrencyWithSymbol(invoice.grand_total, currency)}
-              </span>
+            <div className="pt-2 border-t border-gray-200 space-y-1">
+              <div className="flex justify-between items-baseline font-bold">
+                <span className="text-gray-900 text-sm">Grand Total ({currency}):</span>
+                <span className="text-lg font-mono text-navy-900">
+                  {formatCurrencyWithSymbol(invoice.grand_total, currency)}
+                </span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-emerald-900 text-xs font-semibold">
+                  Dual Equivalent ({convertedCurrency}):
+                </span>
+                <span className="text-sm font-mono font-bold text-emerald-800">
+                  {formatCurrencyWithSymbol(convertedGrandTotal, convertedCurrency)}
+                </span>
+              </div>
+              <div className="pt-1 text-2xs text-gray-400 font-mono text-right">
+                Forex Rate ({exchangeRateDate}): {exchangeRateDisplay}
+              </div>
             </div>
           </div>
         </div>
@@ -468,12 +562,12 @@ export function CompanyInvoiceDetail() {
               Are you sure you want to permanently delete draft invoice{' '}
               <span className="font-semibold text-gray-900">{invoice.invoice_no}</span>?
             </p>
-            <div className="flex justify-end gap-2.5 pt-2">
+
+            <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
-                disabled={deleteMutation.isPending}
                 onClick={() => setIsDeleting(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                className="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
               >
                 Cancel
               </button>
@@ -481,10 +575,9 @@ export function CompanyInvoiceDetail() {
                 type="button"
                 disabled={deleteMutation.isPending}
                 onClick={() => deleteMutation.mutate()}
-                className="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition flex items-center gap-1.5"
+                className="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition disabled:opacity-50"
               >
-                {deleteMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Delete Permanently
+                {deleteMutation.isPending ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
           </div>

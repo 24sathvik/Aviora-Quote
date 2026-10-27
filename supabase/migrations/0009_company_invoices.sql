@@ -22,6 +22,13 @@ CREATE TABLE IF NOT EXISTS public.company_invoices (
   gst_percent NUMERIC(5,2) NOT NULL DEFAULT 0.00,
   gst_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   grand_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  converted_currency TEXT CHECK (converted_currency IN ('INR', 'USD', 'NZD', 'PHP')),
+  exchange_rate NUMERIC(14,6) NOT NULL DEFAULT 1.000000,
+  exchange_rate_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  converted_subtotal NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  converted_discount_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  converted_gst_amount NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  converted_grand_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'sent', 'paid', 'cancelled')),
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -37,6 +44,8 @@ CREATE TABLE IF NOT EXISTS public.company_invoice_items (
   unit_price NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   line_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   currency TEXT NOT NULL DEFAULT 'INR',
+  converted_unit_price NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+  converted_line_total NUMERIC(12,2) NOT NULL DEFAULT 0.00,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

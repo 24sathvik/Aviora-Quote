@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client'
 import { generateCompanyInvoiceNumber } from '@/lib/numbering/generate-number'
 import { getFinancialYearLabel } from '@/lib/numbering/financial-year'
 import { roundCurrency } from '@/lib/utils/currency'
+import { getDefaultConvertedCurrency } from '@/lib/utils/exchange-rates'
 import type {
   CompanyInvoice,
   CompanyInvoiceItem,
@@ -14,6 +15,8 @@ export interface CreateCompanyInvoiceItemInput {
   description: string
   quantity: number
   unit_price: number
+  converted_unit_price?: number
+  converted_line_total?: number
 }
 
 export interface CreateCompanyInvoiceInput {
@@ -23,6 +26,9 @@ export interface CreateCompanyInvoiceInput {
   companyGstin?: string | null
   companyCin?: string | null
   currency: SupportedCurrency
+  convertedCurrency?: SupportedCurrency | null
+  exchangeRate?: number
+  exchangeRateDate?: string
   invoiceDate: string // YYYY-MM-DD
   dueDate: string // YYYY-MM-DD
   items: CreateCompanyInvoiceItemInput[]
@@ -40,6 +46,7 @@ export interface CreateCompanyInvoiceResult {
   subtotal: number
   gst_amount: number
   grand_total: number
+  converted_grand_total?: number
   status: CompanyInvoiceStatus
 }
 
@@ -99,17 +106,26 @@ export async function createCompanyInvoice(
     invoiceNo = await generateCompanyInvoiceNumber(invoiceDate, supabase)
   }
 
+  const convertedCurrency: SupportedCurrency =
+    input.convertedCurrency || getDefaultConvertedCurrency(input.currency)
+  const exchangeRate = Number(input.exchangeRate) > 0 ? Number(input.exchangeRate) : 1
+  const exchangeRateDate = input.exchangeRateDate || invoiceDate
+
   // Calculate items and line totals
   const processedItems = input.items.map((it) => {
     const qty = Number(it.quantity) || 1
     const price = Number(it.unit_price) || 0
     const lineTotal = roundCurrency(qty * price)
+    const convertedUnitPrice = roundCurrency(price * exchangeRate)
+    const convertedLineTotal = roundCurrency(lineTotal * exchangeRate)
     return {
       description: it.description.trim(),
       quantity: qty,
       unit_price: price,
       line_total: lineTotal,
       currency: input.currency,
+      converted_unit_price: convertedUnitPrice,
+      converted_line_total: convertedLineTotal,
     }
   })
 
@@ -121,6 +137,11 @@ export async function createCompanyInvoice(
   const gstPercent = applyGst ? Number(input.gstPercent ?? 18) : 0
   const gstAmount = applyGst ? roundCurrency((taxableAmount * gstPercent) / 100) : 0
   const grandTotal = roundCurrency(taxableAmount + gstAmount)
+
+  const convertedSubtotal = roundCurrency(subtotal * exchangeRate)
+  const convertedDiscountAmount = roundCurrency(discountAmount * exchangeRate)
+  const convertedGstAmount = roundCurrency(gstAmount * exchangeRate)
+  const convertedGrandTotal = roundCurrency(grandTotal * exchangeRate)
 
   const status: CompanyInvoiceStatus = input.saveAsDraft ? 'draft' : 'sent'
 
@@ -143,10 +164,17 @@ export async function createCompanyInvoice(
       gst_percent: gstPercent,
       gst_amount: gstAmount,
       grand_total: grandTotal,
+      converted_currency: convertedCurrency,
+      exchange_rate: exchangeRate,
+      exchange_rate_date: exchangeRateDate,
+      converted_subtotal: convertedSubtotal,
+      converted_discount_amount: convertedDiscountAmount,
+      converted_gst_amount: convertedGstAmount,
+      converted_grand_total: convertedGrandTotal,
       status,
       notes: input.notes?.trim() || null,
     })
-    .select('id, invoice_no, subtotal, gst_amount, grand_total, status')
+    .select('id, invoice_no, subtotal, gst_amount, grand_total, converted_grand_total, status')
     .single()
 
   if (invoiceError || !invoiceData) {
@@ -161,6 +189,8 @@ export async function createCompanyInvoice(
     unit_price: it.unit_price,
     line_total: it.line_total,
     currency: it.currency,
+    converted_unit_price: it.converted_unit_price,
+    converted_line_total: it.converted_line_total,
   }))
 
   const { error: itemsError } = await supabase
@@ -179,6 +209,7 @@ export async function createCompanyInvoice(
     subtotal: Number(invoiceData.subtotal),
     gst_amount: Number(invoiceData.gst_amount),
     grand_total: Number(invoiceData.grand_total),
+    converted_grand_total: Number(invoiceData.converted_grand_total),
     status: invoiceData.status as CompanyInvoiceStatus,
   }
 }
@@ -249,17 +280,26 @@ export async function updateCompanyInvoice(
   const invoiceDate = input.invoiceDate || new Date().toISOString().split('T')[0]
   const fyLabel = getFinancialYearLabel(invoiceDate)
 
+  const convertedCurrency: SupportedCurrency =
+    input.convertedCurrency || getDefaultConvertedCurrency(input.currency)
+  const exchangeRate = Number(input.exchangeRate) > 0 ? Number(input.exchangeRate) : 1
+  const exchangeRateDate = input.exchangeRateDate || invoiceDate
+
   // Calculate items and line totals
   const processedItems = input.items.map((it) => {
     const qty = Number(it.quantity) || 1
     const price = Number(it.unit_price) || 0
     const lineTotal = roundCurrency(qty * price)
+    const convertedUnitPrice = roundCurrency(price * exchangeRate)
+    const convertedLineTotal = roundCurrency(lineTotal * exchangeRate)
     return {
       description: it.description.trim(),
       quantity: qty,
       unit_price: price,
       line_total: lineTotal,
       currency: input.currency,
+      converted_unit_price: convertedUnitPrice,
+      converted_line_total: convertedLineTotal,
     }
   })
 
@@ -271,6 +311,11 @@ export async function updateCompanyInvoice(
   const gstPercent = applyGst ? Number(input.gstPercent ?? 18) : 0
   const gstAmount = applyGst ? roundCurrency((taxableAmount * gstPercent) / 100) : 0
   const grandTotal = roundCurrency(taxableAmount + gstAmount)
+
+  const convertedSubtotal = roundCurrency(subtotal * exchangeRate)
+  const convertedDiscountAmount = roundCurrency(discountAmount * exchangeRate)
+  const convertedGstAmount = roundCurrency(gstAmount * exchangeRate)
+  const convertedGrandTotal = roundCurrency(grandTotal * exchangeRate)
 
   const status: CompanyInvoiceStatus = input.saveAsDraft ? 'draft' : 'sent'
 
@@ -292,11 +337,18 @@ export async function updateCompanyInvoice(
       gst_percent: gstPercent,
       gst_amount: gstAmount,
       grand_total: grandTotal,
+      converted_currency: convertedCurrency,
+      exchange_rate: exchangeRate,
+      exchange_rate_date: exchangeRateDate,
+      converted_subtotal: convertedSubtotal,
+      converted_discount_amount: convertedDiscountAmount,
+      converted_gst_amount: convertedGstAmount,
+      converted_grand_total: convertedGrandTotal,
       status,
       notes: input.notes?.trim() || null,
     })
     .eq('id', input.id)
-    .select('id, invoice_no, subtotal, gst_amount, grand_total, status')
+    .select('id, invoice_no, subtotal, gst_amount, grand_total, converted_grand_total, status')
     .single()
 
   if (invoiceError || !invoiceData) {
@@ -320,6 +372,8 @@ export async function updateCompanyInvoice(
     unit_price: it.unit_price,
     line_total: it.line_total,
     currency: it.currency,
+    converted_unit_price: it.converted_unit_price,
+    converted_line_total: it.converted_line_total,
   }))
 
   const { error: itemsError } = await supabase
@@ -336,6 +390,7 @@ export async function updateCompanyInvoice(
     subtotal: Number(invoiceData.subtotal),
     gst_amount: Number(invoiceData.gst_amount),
     grand_total: Number(invoiceData.grand_total),
+    converted_grand_total: Number(invoiceData.converted_grand_total),
     status: invoiceData.status as CompanyInvoiceStatus,
   }
 }

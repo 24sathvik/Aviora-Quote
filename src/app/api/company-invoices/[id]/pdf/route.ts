@@ -18,14 +18,7 @@ export async function GET(
     .from('company_invoices')
     .select(`
       *,
-      company_invoice_items (
-        id,
-        description,
-        quantity,
-        unit_price,
-        line_total,
-        currency
-      )
+      company_invoice_items (*)
     `)
     .eq('id', id)
     .single()

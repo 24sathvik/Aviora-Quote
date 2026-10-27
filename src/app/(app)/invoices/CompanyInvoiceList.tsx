@@ -397,7 +397,14 @@ export function CompanyInvoiceList() {
 
                       {/* Grand Total */}
                       <td className="px-6 py-4 text-right font-mono font-bold text-gray-900">
-                        {formatCurrencyWithSymbol(inv.grand_total, curr)}
+                        <div>
+                          <span>{formatCurrencyWithSymbol(inv.grand_total, curr)}</span>
+                          {Number(inv.converted_grand_total) > 0 && inv.converted_currency && (
+                            <span className="block text-2xs font-normal text-emerald-700">
+                              ≈ {formatCurrencyWithSymbol(Number(inv.converted_grand_total) || 0, inv.converted_currency)}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Status Badge */}

@@ -231,6 +231,8 @@ export interface CompanyInvoiceItem {
   unit_price: number
   line_total: number
   currency?: SupportedCurrency
+  converted_unit_price?: number
+  converted_line_total?: number
   created_at?: string
 }
 
@@ -251,6 +253,13 @@ export interface CompanyInvoice {
   gst_percent: number
   gst_amount: number
   grand_total: number
+  converted_currency?: SupportedCurrency | null
+  exchange_rate?: number
+  exchange_rate_date?: string
+  converted_subtotal?: number
+  converted_discount_amount?: number
+  converted_gst_amount?: number
+  converted_grand_total?: number
   status: CompanyInvoiceStatus
   notes?: string | null
   created_at: string
