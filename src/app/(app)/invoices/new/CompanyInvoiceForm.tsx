@@ -314,6 +314,9 @@ export function CompanyInvoiceForm({ initialInvoice }: CompanyInvoiceFormProps) 
         }
       }
 
+      const branchLocation =
+        companyDetails?.values?.bank_branch || initialInvoice?.bank_branch || null
+
       if (isEditing && initialInvoice) {
         return await updateCompanyInvoice(
           {
@@ -323,6 +326,7 @@ export function CompanyInvoiceForm({ initialInvoice }: CompanyInvoiceFormProps) 
             companyAddress,
             companyGstin,
             companyCin,
+            bankBranch: branchLocation,
             currency,
             convertedCurrency,
             exchangeRate,
@@ -347,6 +351,7 @@ export function CompanyInvoiceForm({ initialInvoice }: CompanyInvoiceFormProps) 
             companyAddress,
             companyGstin,
             companyCin,
+            bankBranch: branchLocation,
             currency,
             convertedCurrency,
             exchangeRate,
@@ -375,6 +380,8 @@ export function CompanyInvoiceForm({ initialInvoice }: CompanyInvoiceFormProps) 
     onSuccess: async (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInvoices.all })
       queryClient.invalidateQueries({ queryKey: queryKeys.companyInvoices.detail(result.invoice_id) })
+      queryClient.invalidateQueries({ queryKey: ['company_settings_panel'] })
+      queryClient.invalidateQueries({ queryKey: ['company_settings'] })
       success(
         isEditing ? 'Company Invoice Updated' : 'Company Invoice Created',
         `Invoice ${result.invoice_no} has been successfully ${
@@ -826,7 +833,15 @@ export function CompanyInvoiceForm({ initialInvoice }: CompanyInvoiceFormProps) 
           </div>
 
           {/* Card 5: Company & Document Details (Editable Panel) */}
-          <CompanyDetailsPanel onChange={setCompanyDetails} initialCollapsed={true} />
+          <CompanyDetailsPanel
+            onChange={setCompanyDetails}
+            initialCollapsed={true}
+            initialValues={
+              initialInvoice?.bank_branch
+                ? { bank_branch: initialInvoice.bank_branch }
+                : undefined
+            }
+          />
         </div>
 
         {/* Right Sidebar: Dual Currency Tax Invoice Summary Panel */}

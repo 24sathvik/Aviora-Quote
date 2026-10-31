@@ -78,6 +78,7 @@ export async function saveCompanySettings(
     bank_account_name: values.bank_account_name || null,
     bank_account_number: values.bank_account_number || null,
     bank_ifsc: values.bank_ifsc || null,
+    bank_branch: values.bank_branch || null,
     terms_and_conditions_text: values.terms_and_conditions_text || null,
     updated_at: new Date().toISOString(),
   }
@@ -117,15 +118,20 @@ export async function saveCompanySettings(
 interface CompanyDetailsPanelProps {
   onChange?: (payload: CompanyDetailsChangePayload) => void
   initialCollapsed?: boolean
+  initialValues?: Partial<CompanyDetailsState>
 }
 
 export function CompanyDetailsPanel({
   onChange,
   initialCollapsed = true,
+  initialValues,
 }: CompanyDetailsPanelProps) {
   const supabase = createClient()
   const [isExpanded, setIsExpanded] = useState(!initialCollapsed)
-  const [formState, setFormState] = useState<CompanyDetailsState>(defaultCompanyDetails)
+  const [formState, setFormState] = useState<CompanyDetailsState>(() => ({
+    ...defaultCompanyDetails,
+    ...(initialValues || {}),
+  }))
 
   // Fetch current company settings
   const { data: settingsData } = useQuery({
@@ -144,26 +150,26 @@ export function CompanyDetailsPanel({
   useEffect(() => {
     if (settingsData) {
       const hydrated: CompanyDetailsState = {
-        company_name: settingsData.name || settingsData.company_name || defaultCompanyDetails.company_name,
-        company_email: settingsData.company_email || defaultCompanyDetails.company_email,
-        company_phone: settingsData.phone || settingsData.company_phone || defaultCompanyDetails.company_phone,
-        company_address: settingsData.address || settingsData.company_address || defaultCompanyDetails.company_address,
-        gstin: settingsData.gstin || defaultCompanyDetails.gstin,
-        cin: settingsData.cin_number || settingsData.cin || defaultCompanyDetails.cin,
-        show_gst_on_documents: settingsData.show_gst_on_documents ?? false,
-        show_cin_on_documents: settingsData.show_cin_on_documents ?? false,
-        bank_name: settingsData.bank_name || defaultCompanyDetails.bank_name,
-        bank_account_name: settingsData.bank_account_name || defaultCompanyDetails.bank_account_name,
-        bank_account_number: settingsData.bank_account_number || defaultCompanyDetails.bank_account_number,
-        bank_ifsc: settingsData.bank_ifsc || defaultCompanyDetails.bank_ifsc,
-        bank_branch: defaultCompanyDetails.bank_branch,
+        company_name: initialValues?.company_name || settingsData.name || settingsData.company_name || defaultCompanyDetails.company_name,
+        company_email: initialValues?.company_email || settingsData.company_email || defaultCompanyDetails.company_email,
+        company_phone: initialValues?.company_phone || settingsData.phone || settingsData.company_phone || defaultCompanyDetails.company_phone,
+        company_address: initialValues?.company_address || settingsData.address || settingsData.company_address || defaultCompanyDetails.company_address,
+        gstin: initialValues?.gstin || settingsData.gstin || defaultCompanyDetails.gstin,
+        cin: initialValues?.cin || settingsData.cin_number || settingsData.cin || defaultCompanyDetails.cin,
+        show_gst_on_documents: initialValues?.show_gst_on_documents ?? settingsData.show_gst_on_documents ?? false,
+        show_cin_on_documents: initialValues?.show_cin_on_documents ?? settingsData.show_cin_on_documents ?? false,
+        bank_name: initialValues?.bank_name || settingsData.bank_name || defaultCompanyDetails.bank_name,
+        bank_account_name: initialValues?.bank_account_name || settingsData.bank_account_name || defaultCompanyDetails.bank_account_name,
+        bank_account_number: initialValues?.bank_account_number || settingsData.bank_account_number || defaultCompanyDetails.bank_account_number,
+        bank_ifsc: initialValues?.bank_ifsc || settingsData.bank_ifsc || defaultCompanyDetails.bank_ifsc,
+        bank_branch: initialValues?.bank_branch || settingsData.bank_branch || defaultCompanyDetails.bank_branch,
         terms_and_conditions_text:
-          settingsData.terms_and_conditions_text || defaultCompanyDetails.terms_and_conditions_text,
+          initialValues?.terms_and_conditions_text || settingsData.terms_and_conditions_text || defaultCompanyDetails.terms_and_conditions_text,
       }
       setFormState(hydrated)
       onChange?.({ values: hydrated, isDirty: false })
     }
-  }, [settingsData])
+  }, [settingsData, initialValues])
 
   const updateField = <K extends keyof CompanyDetailsState>(field: K, value: CompanyDetailsState[K]) => {
     const updated = { ...formState, [field]: value }
