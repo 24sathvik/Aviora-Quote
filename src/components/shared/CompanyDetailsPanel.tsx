@@ -133,6 +133,14 @@ export function CompanyDetailsPanel({
     ...(initialValues || {}),
   }))
 
+  const onChangeRef = React.useRef(onChange)
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  const hasHydratedRef = React.useRef(false)
+  const initialBankBranch = initialValues?.bank_branch
+
   // Fetch current company settings
   const { data: settingsData } = useQuery({
     queryKey: ['company_settings_panel'],
@@ -146,9 +154,10 @@ export function CompanyDetailsPanel({
     },
   })
 
-  // Hydrate state when settings load
+  // Hydrate state once when settings load
   useEffect(() => {
-    if (settingsData) {
+    if (settingsData && !hasHydratedRef.current) {
+      hasHydratedRef.current = true
       const hydrated: CompanyDetailsState = {
         company_name: initialValues?.company_name || settingsData.name || settingsData.company_name || defaultCompanyDetails.company_name,
         company_email: initialValues?.company_email || settingsData.company_email || defaultCompanyDetails.company_email,
@@ -162,19 +171,19 @@ export function CompanyDetailsPanel({
         bank_account_name: initialValues?.bank_account_name || settingsData.bank_account_name || defaultCompanyDetails.bank_account_name,
         bank_account_number: initialValues?.bank_account_number || settingsData.bank_account_number || defaultCompanyDetails.bank_account_number,
         bank_ifsc: initialValues?.bank_ifsc || settingsData.bank_ifsc || defaultCompanyDetails.bank_ifsc,
-        bank_branch: initialValues?.bank_branch || settingsData.bank_branch || defaultCompanyDetails.bank_branch,
+        bank_branch: initialBankBranch || settingsData.bank_branch || defaultCompanyDetails.bank_branch,
         terms_and_conditions_text:
           initialValues?.terms_and_conditions_text || settingsData.terms_and_conditions_text || defaultCompanyDetails.terms_and_conditions_text,
       }
       setFormState(hydrated)
-      onChange?.({ values: hydrated, isDirty: false })
+      onChangeRef.current?.({ values: hydrated, isDirty: false })
     }
-  }, [settingsData, initialValues])
+  }, [settingsData, initialBankBranch])
 
   const updateField = <K extends keyof CompanyDetailsState>(field: K, value: CompanyDetailsState[K]) => {
     const updated = { ...formState, [field]: value }
     setFormState(updated)
-    onChange?.({ values: updated, isDirty: true })
+    onChangeRef.current?.({ values: updated, isDirty: true })
   }
 
   return (
